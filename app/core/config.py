@@ -70,6 +70,43 @@ class Settings(BaseSettings):
     app_env: str = Field(default="development")
     log_level: str = Field(default="INFO")
 
+    supported_currencies: list[str] = Field(
+        default=["USD", "EUR", "GBP", "INR"],
+        description=(
+            "Currencies accounts may be opened in. A whitelist rather than "
+            "free text: every currency needs its own SYSTEM boundary account, "
+            "and an unbounded set would mean an unbounded number of those. "
+            "Accepts a comma-separated list or a JSON array."
+        ),
+    )
+
+    @field_validator("supported_currencies", mode="before")
+    @classmethod
+    def parse_currency_list(cls, value: object) -> object:
+        """Accept `USD,EUR` as well as `["USD","EUR"]` from the environment."""
+        if isinstance(value, str):
+            stripped = value.strip()
+            if stripped.startswith("["):
+                return stripped  # leave JSON for pydantic to parse
+            return [
+                part.strip().upper() for part in stripped.split(",") if part.strip()
+            ]
+        return value
+
+    @field_validator("supported_currencies")
+    @classmethod
+    def validate_currency_codes(cls, value: list[str]) -> list[str]:
+        if not value:
+            raise ValueError("SUPPORTED_CURRENCIES must list at least one currency")
+        normalised = [code.strip().upper() for code in value]
+        for code in normalised:
+            if len(code) != 3 or not code.isalpha():
+                raise ValueError(
+                    f"{code!r} is not a 3-letter ISO 4217 alphabetic currency code"
+                )
+        # Deduplicate while keeping declared order.
+        return list(dict.fromkeys(normalised))
+
     # ---- Rate limiting (in-process; see MEMORY.md known limitations) --
     rate_limit_auth: str = Field(default="10/minute")
     rate_limit_transactions: str = Field(default="100/minute")

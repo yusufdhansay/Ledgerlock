@@ -98,7 +98,9 @@ class AccountPublic(BaseModel):
     """
 
     id: str
-    owner_id: str
+    owner_id: str | None = Field(
+        default=None, description="None for SYSTEM accounts, which have no owner."
+    )
     currency: CurrencyCode
     status: AccountStatus
     account_type: AccountType
@@ -107,9 +109,10 @@ class AccountPublic(BaseModel):
 
     @classmethod
     def from_document(cls, document: dict[str, Any]) -> AccountPublic:
+        owner_id = document.get("owner_id")
         return cls(
             id=str(document["_id"]),
-            owner_id=str(document["owner_id"]),
+            owner_id=str(owner_id) if owner_id is not None else None,
             currency=document["currency"],
             status=document["status"],
             account_type=document["account_type"],
@@ -154,7 +157,11 @@ class AccountDocument(MongoDocument):
     """The `accounts` collection document. Contains no balance field."""
 
     id: ObjectId | None = Field(default=None, alias="_id")
-    owner_id: ObjectId
+    #: None for SYSTEM accounts, which represent the ledger's boundary with
+    #: the outside world and are owned by nobody. Because ownership checks
+    #: compare against the caller's id, a null owner can never match, so a
+    #: SYSTEM account is unreachable through any owner-scoped route.
+    owner_id: ObjectId | None = Field(default=None)
     currency: CurrencyCode
     status: AccountStatus = Field(default=AccountStatus.ACTIVE)
     account_type: AccountType = Field(default=AccountType.USER)

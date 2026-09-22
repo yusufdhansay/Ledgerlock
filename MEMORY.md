@@ -4,7 +4,7 @@ This file is the persistent context across sessions. Read it first,
 every time, before doing anything else.
 
 ## Current Phase
-Phase 2: Accounts and aggregation-based balance — not started
+Phase 3: Transaction creation, the atomic core — not started
 
 ## Completed Phases
 
@@ -51,9 +51,30 @@ Phase 2: Accounts and aggregation-based balance — not started
 - `app/main.py`: app factory, lifespan, liveness and readiness probes
 - Commit hash recorded in git log for `Phase 1: models and authentication`
 
+### Phase 2 — Accounts and aggregation-based balance (2026-09-22)
+- `app/services/balance_service.py`: `compute_balance()` runs a `$match` +
+  `$group` aggregation over `ledger_entries`, summing the stored
+  `signed_amount_minor` for the net and using `$cond` for the credited and
+  debited subtotals. Accepts an optional `session` so Phase 3 can run the
+  sufficiency check *inside* the ledger transaction — that parameter is
+  what ties read to write. An account with no entries returns
+  `ZERO_BALANCE`, i.e. exactly 0, not a missing value.
+- `app/services/account_service.py`: create, lookup, owner-scoped lookup,
+  bounded listing, and `ensure_system_accounts()`.
+- `app/routes/accounts.py`: `POST /accounts`, `GET /accounts` (paginated),
+  `GET /accounts/{id}`, `GET /accounts/{id}/balance`.
+- `Settings.supported_currencies` added (default USD, EUR, GBP, INR;
+  accepts comma-separated or JSON from the environment).
+- `AccountDocument.owner_id` made nullable so SYSTEM accounts can exist
+  with no owner. Since every owner-scoped query filters on the caller's
+  id, a null owner can never match, so SYSTEM accounts are unreachable
+  through any user-facing route. Tested.
+- Startup now provisions one SYSTEM boundary account per supported
+  currency.
+
 ## In Progress
-Nothing in progress. Phase 1 closed; Phase 2 (accounts + aggregation
-balance) is next.
+Nothing in progress. Phase 2 closed; Phase 3 (atomic transaction
+creation in `ledger_service.py`) is next.
 
 ## Assumptions
 
@@ -222,6 +243,46 @@ balance) is next.
   committed. Not built yet; recorded so the claim made in Phase 4 matches
   what is actually implemented.
 
+### Phase 2 assumptions
+
+- **`app/services/account_service.py` added.** ARCHITECTURE.md's tree
+  lists three services (`ledger_service`, `balance_service`,
+  `reconciliation`), and account logic fits none of them. Putting it in the
+  route module would break DESIGN.md's rule that routes are thin and
+  services hold all business logic. DESIGN.md's rule is the stronger
+  constraint, so a fourth service module was added rather than fattening
+  the route. No existing module was moved or renamed.
+- **Read-only account routes beyond "account creation endpoint".**
+  TASK.md Phase 2 names only the creation endpoint and the balance
+  computation. `GET /accounts`, `GET /accounts/{id}` were added because
+  DESIGN.md specifies pagination conventions for list endpoints, which
+  implies at least one exists, and because the API is otherwise unusable:
+  a client could create an account but never enumerate its accounts. Both
+  are read-only and owner-scoped.
+- **No ledger entry listing endpoint.** Considered and deliberately not
+  built: RULES.md forbids inventing scope, and nothing in PRD.md, TASK.md
+  or DESIGN.md calls for one. The Phase 4 immutability test therefore
+  asserts the *absence* of any mutating route on ledger data (verified by
+  inspecting the generated OpenAPI paths) as well as attempting direct
+  driver writes. Confirmed at the end of Phase 2 that the only routes the
+  app exposes are: `/accounts` GET+POST, `/accounts/{id}` GET,
+  `/accounts/{id}/balance` GET, the four `/auth/*` routes, and the two
+  health probes.
+- **Not-found instead of forbidden for someone else's account.**
+  Owner-scoped lookups put the ownership check in the query filter, so
+  requesting an account owned by another user returns
+  `404 ACCOUNT_NOT_FOUND` rather than `403 FORBIDDEN`. A 403 would confirm
+  that the id exists, turning the route into a probe for valid account
+  ids. `require_account_owner` in `security.py` (which does raise 403)
+  remains available for cases where the resource's existence is already
+  known to the caller.
+- **Balance is reported honestly, including if it is negative.** The
+  aggregation does not clamp at zero. The overdraft guarantee lives in the
+  write path, not in the reader. A reader that floored negatives at zero
+  would hide exactly the corruption the reconciliation check exists to
+  detect, so there is a test asserting that a directly-inserted debit shows
+  up as a negative balance.
+
 ## Known Issues
 
 - **Rate limiting is in-process.** `slowapi` keeps its counters in the
@@ -278,6 +339,34 @@ Notable assertions that passed, beyond the happy paths:
   stores the `jti` rather than the token itself
 - a password of 25 three-byte characters (75 bytes) is rejected while 24
   (72 bytes) is accepted — the bcrypt limit is enforced in bytes
+
+### Phase 2 — Accounts and balance test suite
+Command: `.venv/bin/python -m pytest -q` (full suite)
+Run on 2026-09-22, Python 3.12.9, against `mongo:7.0` replica set `rs0`.
+Result: **71 passed in 5.08s** (4 Phase 0 + 35 Phase 1 + 32 Phase 2).
+`ruff check app tests` and `black app tests` both clean.
+
+Balance assertions that passed, all computed by aggregation with nothing
+stored:
+- credits 10000 + 2500, debits 4000 + 1 -> balance exactly **8499**,
+  credited 12500, debited 4001, entry_count 4
+- an account with no entries -> balance exactly **0**, entry_count 0
+- 500 entries of 1 minor unit -> exactly **500**
+- 9007199254740993 (2^53 + 1) credited, 1 debited -> exactly
+  **9007199254740992**, which a float64 path could not have produced
+- account documents contain no `balance` / `balance_minor` /
+  `available_balance` field, asserted against the stored document
+
+Database-level rejections that passed:
+- a DEBIT with a positive `signed_amount_minor` is refused by the
+  collection validator's `$expr` clause on a direct driver insert
+- `amount_minor` of 0 or -100 is refused
+- a second DEBIT for the same `transaction_id` is refused by
+  `uq_one_entry_per_direction_per_transaction`
+- a second SYSTEM account for USD is refused by
+  `uq_system_account_per_currency`
+- `{"$ne": null}` and `$where` submitted as an account id are rejected at
+  the edge as MALFORMED_REQUEST, never reaching a query document
 
 ### Later phases
 - Overdraft test: not run yet (Phase 4)

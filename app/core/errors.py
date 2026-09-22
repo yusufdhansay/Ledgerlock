@@ -50,6 +50,7 @@ class ErrorCode(StrEnum):
     # ---- Accounts ----------------------------------------------------
     ACCOUNT_NOT_FOUND = "ACCOUNT_NOT_FOUND"
     ACCOUNT_NOT_ACTIVE = "ACCOUNT_NOT_ACTIVE"
+    UNSUPPORTED_CURRENCY = "UNSUPPORTED_CURRENCY"
 
     # ---- Transactions / ledger ---------------------------------------
     INSUFFICIENT_FUNDS = "INSUFFICIENT_FUNDS"
@@ -143,6 +144,19 @@ class AccountNotActiveError(LedgerlockError):
     status_code = status.HTTP_409_CONFLICT
     code = ErrorCode.ACCOUNT_NOT_ACTIVE
     message = "Account is not ACTIVE and cannot take part in a transaction."
+
+
+class UnsupportedCurrencyError(LedgerlockError):
+    """Raised for a currency this deployment has no SYSTEM account for.
+
+    The currency list is a whitelist because every currency needs its own
+    SYSTEM boundary account, so accepting arbitrary codes would mean an
+    unbounded number of them.
+    """
+
+    status_code = status.HTTP_422_UNPROCESSABLE_CONTENT
+    code = ErrorCode.UNSUPPORTED_CURRENCY
+    message = "That currency is not supported by this deployment."
 
 
 # ---------------------------------------------------------------------
