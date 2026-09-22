@@ -4,7 +4,7 @@ This file is the persistent context across sessions. Read it first,
 every time, before doing anything else.
 
 ## Current Phase
-Phase 8: CI and security pass — not started
+Phase 9: Final README and number consolidation — not started
 
 ## Completed Phases
 
@@ -165,9 +165,29 @@ Phase 8: CI and security pass — not started
   `ScalingActive=True`.
 - Raw output: `tests/concurrency/results/phase7-kubernetes-20260922T175151Z.txt`
 
+### Phase 8 — CI pipeline and security hardening (2026-09-22)
+- `.github/workflows/ci.yml`: five jobs — lint, test (against a real replica
+  set), security audit, append-only privilege verification, and an image
+  build gated on all four.
+- `app/core/rate_limit.py`, with limits applied to every non-health route.
+  `tests/unit/test_rate_limit.py` (7 tests).
+- `tests/unit/test_injection.py` (72 tests): operator payloads submitted in
+  bodies, path parameters, query parameters and headers.
+- **Two real validation weaknesses found and fixed** by those injection
+  tests; see the Phase 8 assumptions below.
+- `scripts/audit_secrets.sh`: committed-secret scan, itself verified against
+  a planted secret so it is known to catch one.
+- **Closed the immutability gap open since Phase 4**, via
+  `docker-compose.hardened.yml`, `docker/mongo-keyfile-entrypoint.sh`,
+  `docker/mongo-provision-roles.js` and `scripts/verify_append_only.sh`.
+- Artifacts:
+  `tests/concurrency/results/phase8-security-audit-20260922T183837Z.txt`
+  and
+  `tests/concurrency/results/phase8-append-only-privileges-20260922T183456Z.txt`
+
 ## In Progress
-Nothing in progress. Phase 7 closed; Phase 8 (CI pipeline and security
-hardening) is next.
+Nothing in progress. Phase 8 closed; Phase 9 (final README consolidating
+every measured number) is next.
 
 ## Assumptions
 
@@ -760,6 +780,133 @@ hardening) is next.
   against a local cluster, which is impossible without them. No named file
   was renamed or dropped.
 
+### Phase 8 assumptions and findings
+
+- **Two real validation weaknesses, found by the injection tests.** Both were
+  Pydantic's default lax coercion doing something quietly wrong with money:
+  - `amount_minor: true` was accepted as an amount of **1**, because `bool`
+    subclasses `int` in Python. It reached the sufficiency check and was
+    rejected only for insufficient funds, which means on a funded account it
+    would have moved one minor unit.
+  - `amount_minor: "100"` was accepted as 100, and `10.0` as 10.
+
+  Fixed by making `AmountMinor` strict (`Field(strict=True, ...)`), which
+  rejects booleans, numeric strings and floats instead of coercing them.
+  Verified directly: strict mode rejects `True`, `"100"` and `10.0` while
+  accepting `100`. This only shows up if you deliberately send the wrong type,
+  which is exactly why the injection suite sends it.
+- **NoSQL injection has a different shape from SQL injection, and the tests
+  reflect that.** The attack is not a quoted string escaping its quotes, it is
+  a *JSON object* arriving where a scalar was expected: `{"email": {"$ne":
+  null}}` matches every user, and `$where` executes server-side JavaScript. So
+  the tests submit operator objects in every position an external value can
+  occupy, and finish with an end-to-end check that after a barrage of attempts
+  the document counts in all four collections are unchanged.
+- **One test asserts a non-obvious distinction rather than a vulnerability.**
+  `../../admin` in a path returns 404, not 422, because URL normalisation
+  happens in the client and the router before parameter validation runs. Both
+  are correct refusals, but asserting 422 would have been asserting the wrong
+  mechanism, so traversal has its own test requiring only "not a success".
+- **Rate limiting: `headers_enabled` must stay off.** With it on, slowapi tries
+  to inject `X-RateLimit-*` headers into whatever the endpoint returned, and
+  these endpoints return Pydantic models rather than `Response` objects, so
+  every limited route raised `parameter 'response' must be an instance of
+  starlette.responses.Response`. `Retry-After` is set by hand in the handler
+  instead, computed from the breached limit's window, which is the header that
+  actually matters to a client.
+- **Limits are scoped per endpoint by slowapi, not per configured setting.**
+  Measured: `POST /transactions` and `POST /accounts/{id}/funding` are both
+  configured from `RATE_LIMIT_TRANSACTIONS` but get separate buckets, so five
+  transfers still succeeded after a funding call under a 5/minute setting. The
+  value is therefore a per-endpoint allowance, not a shared ledger-write
+  allowance. Reasonable as a default, but worth knowing rather than assuming.
+- **Rate limiting is keyed by user when authenticated, by IP otherwise.**
+  Keying authenticated traffic by user id means several users behind one NAT do
+  not consume each other's budget, and one user cannot enlarge their budget by
+  rotating addresses. Both directions are tested.
+- **Health probes are exempt, deliberately.** A liveness probe that receives a
+  429 counts as a probe failure, and enough consecutive failures gets the
+  container killed, so rate limiting `/health` would be a way to cause an
+  outage. There is a test firing 25 requests at each probe asserting no 429.
+- **`RATE_LIMIT_ENABLED` exists because of the test suite, and is honoured per
+  request via `exempt_when`.** Dozens of concurrency tests fire 50-100 requests
+  at once and a limiter would fail them for a reason unrelated to what they
+  test. The suite runs with it off, `tests/unit/test_rate_limit.py` turns it
+  back on with tiny limits, and one test asserts it is off for the default
+  client so that a future default flip produces an immediate, legible failure
+  rather than a confusing wave of 429s.
+- **The Phase 6 load numbers were measured with rate limiting off**, which is
+  the honest way round: at `RATE_LIMIT_TRANSACTIONS=100/minute` the load test
+  would have measured the limiter rather than the ledger. Recorded here and in
+  the config field description so those numbers are never quoted as though
+  they were taken through the limiter.
+- **The secret scanner is deliberately narrow, and was tested by planting a
+  secret.** A scanner that flags every occurrence of the word "password"
+  produces enough noise that people stop reading it, which is worse than having
+  none. It looks for the specific shapes a real leak takes here (tracked
+  `.env` or key files, a high-entropy value assigned to `JWT_SECRET_KEY`
+  outside the allow-listed template and test files, MongoDB URIs with inline
+  credentials, AWS/Slack/GitHub token formats, private key blocks) and
+  allow-lists the places a secret's *name* legitimately appears. Verified by
+  committing a fake key, confirming the scan failed, then removing it: a
+  scanner that has never caught anything is not known to work.
+- **The append-only gap from Phase 4 is now closed, with measurements.**
+  MongoDB privilege actions are per collection and `insert` is separate from
+  `update` and `remove`, so an append-only grant is directly expressible. The
+  role `ledgerlockAppendOnlyLedger` grants find/insert plus the DDL needed for
+  startup schema setup on `ledger_entries` and `transactions`, and full CRUD on
+  `users`, `accounts` and `revoked_tokens`. `accounts` must be updatable
+  because the debit serialisation counter is an `$inc` on the account document
+  and the overdraft guarantee depends on that write. Collections are enumerated
+  one by one rather than using the built-in `readWrite` role, which would have
+  covered `ledger_entries` too and silently undone the point.
+  `bypassDocumentValidation` is deliberately not granted: holding it would let
+  the application write an entry that violates the validators.
+- **Authorization on a replica set requires a keyfile. Verified, not assumed.**
+  `mongod --replSet rs0 --auth` with no keyfile exits with code 2 and logs
+  `BadValue: security.keyFile is required when authorization is enabled with
+  replica sets`. The keyfile is therefore generated inside the container onto a
+  volume, 0400 and owned by mongod's user, never committed. The script notes
+  that a multi-member set needs the *same* keyfile on every member, distributed
+  by a secret manager, so it is not copied into a real cluster unchanged.
+- **Why hardening is an overlay rather than the default compose file.** The
+  pytest suite creates and drops databases, which a least-privilege user
+  deliberately cannot do. The options were to weaken the role to suit the
+  tests, make every contributor manage credentials to run the suite, or keep
+  the hardened configuration as a separate profile with its own verification
+  script. Only the third compromises neither the role nor the developer
+  experience. Stated plainly: the default local profile runs MongoDB without
+  authentication and is for development and testing; the hardened overlay is
+  what a deployment should use. Keeping them separate also means the Phase 6
+  load numbers still describe the profile they were measured on.
+- **The append-only verification asserts both directions.** A role that refused
+  everything would pass a test that only checks refusals, so the script also
+  runs the full 33-assertion end-to-end flow under the restricted user,
+  including multi-document transactions, and asserts insert and find still
+  work. Transactions do work under the restricted role, which was not obvious
+  in advance and was worth checking.
+- **A useful side effect, kept rather than tidied away.** The verification's own
+  `insert` probe appends one entry with no matching transaction, so the final
+  reconciliation deliberately reports `net_signed_minor=1` and
+  `entries_without_transaction=1`. The script asserts exactly that instead of
+  asserting "healthy", which demonstrates two things at once: the append
+  genuinely succeeded, and an append that does not belong to a transaction
+  cannot hide from the integrity check.
+- **CI cannot use a `services:` MongoDB container.** GitHub's service containers
+  start with fixed arguments and offer no way to run `rs.initiate()` afterwards,
+  so the result is a standalone mongod, and a standalone mongod refuses
+  multi-document transactions. The suite would fail for a thoroughly misleading
+  reason. MongoDB is therefore started with an explicit `docker run --replSet`
+  step and initiated in the next one, and `test_mongo_transactions.py` runs
+  first as a fail-fast check so a misconfigured database produces one clear
+  failure rather than a wall of confusing ones.
+- **CI verifies properties of the built image, not just that it builds.** It
+  asserts the process runs as uid 1001, that `/app` contains no `.env`, `tests`
+  or `.git`, and that the application refuses to start both with an empty
+  `JWT_SECRET_KEY` and with the `.env.example` placeholder. Those last two are
+  among the most important startup behaviours in the project, so they are
+  checked on every push rather than trusted.
+
 ## Known Issues
 
 - **Extreme single-account contention produces very long tail latencies, and
@@ -792,34 +939,46 @@ hardening) is next.
   roughly `limit × replica count`. Making this correct would need a
   shared backend such as Redis. Recorded here honestly rather than
   claimed as a distributed rate limiter.
-- **Ledger immutability is application-and-validator level, not
-  unbypassable.** Measured in Phase 4 rather than assumed. What holds: no
-  update or delete route exists anywhere in the API (audited against the
-  generated OpenAPI schema), and the `$jsonSchema` + `$expr` collection
-  validator rejects any direct driver write that breaks an entry's shape or
-  its sign convention, including flipping a DEBIT to a CREDIT, and
-  including on update. What does not hold: a caller with direct database
-  credentials can rewrite an entry if it keeps shape and sign
-  self-consistent, for example changing `amount_minor` and
-  `signed_amount_minor` together. A `$jsonSchema` validator judges only the
-  resulting document and cannot compare it with the previous version, and
-  MongoDB has no per-collection append-only mode.
+- **Ledger immutability: enforced by the database in the hardened profile,
+  by convention plus validators in the default one.** This was an open gap
+  from Phase 4 and was closed in Phase 8. Being precise about which claim
+  applies where, because the two are genuinely different in strength:
 
-  This gap is covered by an executable test
-  (`test_the_recorded_limit_a_privileged_update_can_still_succeed`) which
-  asserts the tamper succeeds *and* that reconciliation detects it
-  (`healthy=False`, `net_signed_minor=−7999`,
-  `unbalanced_transaction_groups=1`). Detection is not prevention, but it
-  is the difference between silent corruption and loud corruption.
+  *Both profiles.* No update or delete route exists anywhere in the API,
+  audited against the generated OpenAPI schema so a route added later fails
+  the test automatically. The `$jsonSchema` + `$expr` collection validator
+  rejects any direct driver write that breaks an entry's shape or its sign
+  convention, including flipping a DEBIT to a CREDIT, and including on
+  update.
 
-  **Fix scheduled for Phase 8:** a least-privilege MongoDB role granting
-  `find` and `insert` on `ledger_entries` but not `update` or `remove`,
-  since MongoDB privilege actions are per-collection. That turns "the
-  application never updates entries" into "the application's credentials
-  cannot update entries". It requires enabling authentication on the
-  replica set, which additionally requires a keyfile for internal auth
-  (generated at container start, never committed). When that lands, the
-  test above must be inverted to assert the write is refused.
+  *Default local profile (`docker-compose.yml`, no MongoDB authentication).*
+  A caller with unrestricted database credentials can still rewrite an entry
+  if the result stays self-consistent, for example changing `amount_minor`
+  and `signed_amount_minor` together, because a validator judges only the
+  resulting document and cannot compare it with the previous version. That
+  is asserted by an executable test
+  (`test_a_self_consistent_update_succeeds_without_privilege_separation`)
+  which also confirms reconciliation detects the tamper (`healthy=False`,
+  `net_signed_minor=−7999`, `unbalanced_transaction_groups=1`). Detection is
+  not prevention, but it is the difference between silent and loud
+  corruption.
+
+  *Hardened profile (`docker-compose.hardened.yml`).* The application runs
+  as a role holding `find` and `insert` on `ledger_entries` and
+  `transactions` but not `update` or `remove`. Measured: all nine mutation
+  attempts (update amount, update direction, replace, delete one, delete
+  many, drop collection, update a transaction, delete a transaction, drop
+  the database) are refused with `Unauthorized`, while insert and find still
+  work and the full 33-assertion end-to-end flow still passes. Immutability
+  is then a constraint the database enforces rather than a property of the
+  code happening not to issue an update. Verified by
+  `scripts/verify_append_only.sh`; output in
+  `tests/concurrency/results/phase8-append-only-privileges-20260922T183456Z.txt`.
+
+  *Residual limit, unchanged.* A holder of the MongoDB root credentials can
+  still do anything. This constrains the application, which is the realistic
+  threat (a bug, or a compromised application process), not a database
+  administrator.
 
 ## Real Measured Numbers (fill in only from actual test runs)
 
@@ -1154,5 +1313,79 @@ covered one event loop (Phase 4) and one container with many client processes
 | Reconciliation immediately after | `net_signed_minor` **0**, `healthy` **true**, 34 entries / 17 transactions |
 | PUT/PATCH/DELETE on ledger data | all **405** |
 
+### Phase 8 — Security audit and CI
+Full suite at this commit: **277 passed** (198 before Phase 8, plus 72
+injection tests and 7 rate limiting tests). `ruff` and `black` clean.
+Artifact: `tests/concurrency/results/phase8-security-audit-20260922T183837Z.txt`
+
+| Check | Command | Result |
+|---|---|---|
+| Dependency vulnerabilities | `pip-audit --strict` over both requirements files | **No known vulnerabilities found** |
+| Committed secrets | `./scripts/audit_secrets.sh` | **PASSED**, 6 check groups |
+| Secret scanner actually works | planted a fake `JWT_SECRET_KEY`, re-ran | **FAILED as required**, then passed again once removed |
+| Static analysis incl. bandit rules | `ruff check app tests` (E,F,I,B,UP,ASYNC,S) | **All checks passed** |
+| Injection and input validation | `pytest tests/unit/test_injection.py` | **72 passed** |
+| Rate limiting | `pytest tests/unit/test_rate_limit.py` | **7 passed** |
+| Startup refusal behaviour | `pytest tests/unit/test_config.py` | **38 passed** |
+
+**Two validation weaknesses found and fixed**
+
+| Input | Before | After |
+|---|---|---|
+| `amount_minor: true` | accepted as **1** (bool subclasses int), reached the sufficiency check | rejected, MALFORMED_REQUEST |
+| `amount_minor: "100"` | accepted as 100 | rejected |
+| `amount_minor: 10.0` | accepted as 10 | rejected |
+| `amount_minor: 100` | accepted | accepted (unchanged) |
+
+**Rate limiting, measured**
+
+| Scenario | Configured | Observed |
+|---|---|---|
+| Registrations by one caller | 3/minute | `[201, 201, 201, 429, 429]` |
+| Transfers after a funding call | 5/minute | 5 x 201 then 429 — buckets are per endpoint, so funding did not consume the transfer allowance |
+| One caller exhausting its budget | 8/minute default | `[200 x8, 429, 429]`, and a **second caller still got 200** |
+| 25 requests to `/health` and `/health/ready` | exempt | **0** x 429 on both |
+| 429 response body | — | `{"error": {"code": "RATE_LIMITED", ...}}` with `Retry-After: 60` |
+
+**Append-only ledger via privilege separation**
+Command: `./scripts/verify_append_only.sh` against
+`docker-compose.yml` + `docker-compose.hardened.yml`, fresh volumes.
+Result: **17 assertions passed, 0 failed**
+Artifact:
+`tests/concurrency/results/phase8-append-only-privileges-20260922T183456Z.txt`
+
+| Operation as the application's own user | Outcome |
+|---|---|
+| `find` | **ALLOWED** |
+| `insert` | **ALLOWED** |
+| `updateOne` changing amount and signed amount together | **REFUSED, Unauthorized** |
+| `updateOne` changing direction | **REFUSED, Unauthorized** |
+| `replaceOne` | **REFUSED, Unauthorized** |
+| `deleteOne` | **REFUSED, Unauthorized** |
+| `deleteMany({})` | **REFUSED, Unauthorized** |
+| `drop()` the collection | **REFUSED, Unauthorized** |
+| `updateOne` on `transactions` | **REFUSED, Unauthorized** |
+| `deleteOne` on `transactions` | **REFUSED, Unauthorized** |
+| `dropDatabase()` | **REFUSED, Unauthorized** |
+| anonymous (unauthenticated) read | **REFUSED, Unauthorized** |
+
+Supporting evidence from the same run:
+- the full **33-assertion end-to-end flow passed under the restricted role**,
+  including multi-document transactions, 30 concurrent debits yielding exactly
+  14 successes and a final balance of exactly 4000, and 10 concurrent duplicate
+  submissions yielding exactly 1 acceptance — so the role is restrictive
+  without being unusable
+- `inconsistent_entries: 0` and `amount_999999_entries: 0` afterwards, i.e. the
+  attempted tampers left no trace
+- reconciliation then reported `net_signed_minor=1`,
+  `entries_without_transaction=1` — the one orphan the verification's own
+  `insert` probe deliberately created, which the integrity check caught
+
+Also verified empirically during this phase: `mongod --replSet rs0 --auth`
+with no keyfile **exits with code 2** and logs `BadValue: security.keyFile is
+required when authorization is enabled with replica sets`. That is why the
+keyfile is generated in-container rather than the auth flag simply being
+added.
+
 ### Later phases
-- CI pipeline and security hardening: not done yet (Phase 8)
+- Final README consolidating every measured number: not written yet (Phase 9)

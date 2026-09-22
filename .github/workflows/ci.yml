@@ -1,0 +1,251 @@
+name: CI
+
+# Lint, run the full test suite against a real MongoDB replica set, audit
+# dependencies, and build the image. On every push and every pull request.
+#
+# The test job cannot use a plain `services:` MongoDB container. GitHub's
+# service containers are started with fixed arguments and no way to run
+# `rs.initiate()` afterwards, so the result is a standalone mongod, and a
+# standalone mongod refuses multi-document transactions. Every guarantee this
+# project exists to prove depends on those transactions, so the suite would
+# not merely fail, it would fail for a misleading reason. MongoDB is therefore
+# started explicitly with `docker run --replSet` and initiated in a following
+# step.
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+# Cancel superseded runs on the same ref: nothing here benefits from finishing
+# a run whose commit has already been replaced.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  PYTHON_VERSION: "3.12"
+
+jobs:
+  lint:
+    name: Lint and format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+
+      - name: Install tooling
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+
+      - name: ruff (lint, including bandit security rules)
+        run: ruff check app tests --output-format=github
+
+      - name: black (formatting)
+        run: black --check --diff app tests
+
+  test:
+    name: Tests (MongoDB replica set)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+
+      - name: Start MongoDB as a single-node replica set
+        run: |
+          docker run -d --name ledgerlock-mongo \
+            -p 27017:27017 \
+            mongo:7.0 \
+            --replSet rs0 --bind_ip_all --port 27017
+
+          echo "waiting for mongod to answer..."
+          for attempt in $(seq 1 60); do
+            if docker exec ledgerlock-mongo \
+                 mongosh --quiet --eval "db.adminCommand('ping')" >/dev/null 2>&1; then
+              echo "mongod answering after ${attempt} attempt(s)"
+              break
+            fi
+            sleep 2
+          done
+
+          # The member is registered as localhost:27017 so that the test
+          # suite, which runs on the host, can reach it at the address the
+          # replica set advertises.
+          docker exec ledgerlock-mongo mongosh --quiet --eval '
+            try {
+              rs.status();
+              print("already initiated");
+            } catch (err) {
+              rs.initiate({_id: "rs0", members: [{_id: 0, host: "localhost:27017"}]});
+            }
+          '
+
+          echo "waiting for a writable primary..."
+          for attempt in $(seq 1 60); do
+            if docker exec ledgerlock-mongo mongosh --quiet \
+                 --eval "quit(db.hello().isWritablePrimary ? 0 : 1)"; then
+              echo "primary writable after ${attempt} attempt(s)"
+              break
+            fi
+            sleep 2
+          done
+
+          docker exec ledgerlock-mongo mongosh --quiet --eval '
+            const s = rs.status();
+            print("set=" + s.set);
+            s.members.forEach(m => print("member=" + m.name + " state=" + m.stateStr));
+          '
+
+      - name: Verify the deployment supports transactions before anything else
+        # Fails fast and unmistakably if the replica set did not come up. Without
+        # this, a standalone mongod would produce a wall of confusing errors
+        # deep in the suite rather than one clear failure here.
+        env:
+          JWT_SECRET_KEY: ci-only-throwaway-signing-key-0123456789abcdefghij
+        run: pytest tests/unit/test_mongo_transactions.py -v
+
+      - name: Run the full test suite
+        env:
+          JWT_SECRET_KEY: ci-only-throwaway-signing-key-0123456789abcdefghij
+        run: pytest -v --tb=short
+
+      - name: MongoDB logs on failure
+        if: failure()
+        run: docker logs ledgerlock-mongo --tail 200
+
+  security:
+    name: Security audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+
+      - name: pip-audit (known vulnerabilities in dependencies)
+        run: pip-audit --requirement requirements.txt --requirement requirements-dev.txt --strict
+
+      - name: Confirm no .env file is tracked
+        run: |
+          if git ls-files --error-unmatch .env 2>/dev/null; then
+            echo "::error::a .env file is tracked in git"
+            exit 1
+          fi
+          echo "no tracked .env"
+
+      - name: Scan for committed secrets
+        run: ./scripts/audit_secrets.sh
+
+  append_only:
+    name: Append-only ledger (privilege separation)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Verify ledger entries cannot be updated or deleted
+        # Stands up the hardened profile (MongoDB with authentication and a
+        # least-privilege role) and proves that the credentials the application
+        # holds can insert and read ledger entries but cannot update, replace,
+        # delete, or drop them. This is the difference between immutability as
+        # a convention in application code and immutability as a constraint the
+        # database enforces, so it is checked on every push rather than by hand.
+        run: ./scripts/verify_append_only.sh
+
+      - name: Stack logs on failure
+        if: failure()
+        run: |
+          docker compose -f docker-compose.yml -f docker-compose.hardened.yml \
+            logs --tail 100 mongo mongo-provision api
+
+  build:
+    name: Build the image
+    runs-on: ubuntu-latest
+    # Only build once the code is known to be clean and correct; a green image
+    # built from failing code is worse than no image.
+    needs: [lint, test, security, append_only]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          load: true
+          tags: ledgerlock-api:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Confirm the image runs unprivileged and carries no secrets
+        run: |
+          echo "--- process identity ---"
+          docker run --rm --entrypoint sh ledgerlock-api:ci -c 'id'
+          docker run --rm --entrypoint sh ledgerlock-api:ci -c 'id -u' | grep -qx '1001' \
+            || { echo "::error::image does not run as uid 1001"; exit 1; }
+
+          echo "--- image contents under /app ---"
+          docker run --rm --entrypoint sh ledgerlock-api:ci -c 'ls -a /app'
+
+          for unwanted in .env tests .git; do
+            if docker run --rm --entrypoint sh ledgerlock-api:ci \
+                 -c "test -e /app/$unwanted"; then
+              echo "::error::image contains /app/$unwanted"
+              exit 1
+            fi
+          done
+          echo "no .env, tests, or .git in the image"
+
+      - name: Confirm the app refuses to start without a signing key
+        # The single most important startup behaviour: there is no default JWT
+        # key, and the .env.example placeholder is rejected. Verified on the
+        # built image so it cannot regress silently.
+        run: |
+          if docker run --rm -e JWT_SECRET_KEY= ledgerlock-api:ci \
+               python -c "from app.core.config import Settings; Settings()" 2>/dev/null; then
+            echo "::error::the app accepted an empty JWT_SECRET_KEY"
+            exit 1
+          fi
+          echo "empty signing key correctly refused"
+
+          if docker run --rm \
+               -e JWT_SECRET_KEY=replace-me-with-a-generated-secret \
+               ledgerlock-api:ci \
+               python -c "from app.core.config import Settings; Settings()" 2>/dev/null; then
+            echo "::error::the app accepted the .env.example placeholder"
+            exit 1
+          fi
+          echo "placeholder signing key correctly refused"

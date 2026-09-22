@@ -1,0 +1,122 @@
+# Hardened overlay: MongoDB with authentication on, and the API running under a
+# least-privilege role that CANNOT update or delete ledger entries.
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.hardened.yml up -d --build
+#   ./scripts/verify_append_only.sh
+#
+# What this adds over the base compose file, and why it is a separate overlay:
+#
+# The base file runs MongoDB without authentication, which is the right default
+# for a local development and test stack: the pytest suite creates and drops
+# databases, which a least-privilege user deliberately cannot do. Rather than
+# weaken the role to suit the tests, or make every contributor manage
+# credentials to run the suite, the hardened configuration is a separate
+# profile with its own verification script.
+#
+# This overlay is what a deployment should use. The guarantee it adds is
+# specific and worth stating precisely: with it, immutability of the ledger is
+# enforced by the database's authorisation system rather than by the absence of
+# an offending code path. An `update_one` against `ledger_entries` fails with
+# Unauthorized no matter what the application code says.
+#
+# Honest limits of this profile:
+#   * The keyfile is generated per container. A multi-member replica set needs
+#     the same keyfile on every member, distributed by a secret manager.
+#   * Credentials come from the environment and land in a Kubernetes Secret or
+#     a .env file. Neither is a secret manager.
+#   * A holder of the root credentials can still do anything. This constrains
+#     the application, which is the realistic threat (a bug or a compromised
+#     process), not a database administrator.
+
+services:
+  mongo:
+    environment:
+      # The image creates this user on first initialisation, before auth is
+      # enforced on client connections. Required, no default: there is no
+      # safe fallback for a database root password.
+      MONGO_INITDB_ROOT_USERNAME: "${MONGO_ROOT_USERNAME:?set MONGO_ROOT_USERNAME in .env}"
+      MONGO_INITDB_ROOT_PASSWORD: "${MONGO_ROOT_PASSWORD:?set MONGO_ROOT_PASSWORD in .env}"
+      LEDGERLOCK_REPLICA_SET: "rs0"
+    # Replaces the base entrypoint so a keyfile exists before mongod starts.
+    # Authorization on a replica set is impossible without one; mongod exits
+    # with code 2 and says so.
+    entrypoint: ["/usr/local/bin/ledgerlock-mongo-entrypoint.sh"]
+    command: []
+    volumes:
+      - mongo_data:/data/db
+      - mongo_keyfile:/etc/ledgerlock
+      - ./docker/mongo-keyfile-entrypoint.sh:/usr/local/bin/ledgerlock-mongo-entrypoint.sh:ro
+    healthcheck:
+      # Must authenticate now. The base healthcheck connects anonymously, which
+      # returns Unauthorized once auth is on, so the container would never be
+      # reported healthy and the API would never start.
+      test:
+        - "CMD"
+        - "bash"
+        - "-c"
+        - |
+          mongosh --quiet \
+            -u "$$MONGO_INITDB_ROOT_USERNAME" \
+            -p "$$MONGO_INITDB_ROOT_PASSWORD" \
+            --authenticationDatabase admin \
+            --eval '
+              try {
+                rs.status();
+              } catch (err) {
+                rs.initiate({
+                  _id: "rs0",
+                  members: [{ _id: 0, host: "localhost:27017" }]
+                });
+              }
+              quit(db.hello().isWritablePrimary ? 0 : 1);
+            '
+      interval: 5s
+      timeout: 15s
+      start_period: 20s
+      retries: 40
+
+  # One-shot: creates the append-only role and the application user once the
+  # replica set is up. Separate from the healthcheck because role creation is a
+  # provisioning step, not a health signal, and conflating them would mean
+  # re-running it on every probe.
+  mongo-provision:
+    image: mongo:7.0
+    container_name: ledgerlock-mongo-provision
+    depends_on:
+      mongo:
+        condition: service_healthy
+    environment:
+      MONGO_ROOT_USERNAME: "${MONGO_ROOT_USERNAME:?}"
+      MONGO_ROOT_PASSWORD: "${MONGO_ROOT_PASSWORD:?}"
+      LEDGERLOCK_MONGO_APP_USERNAME: "${MONGO_APP_USERNAME:-ledgerlock_app}"
+      LEDGERLOCK_MONGO_APP_PASSWORD: "${MONGO_APP_PASSWORD:?set MONGO_APP_PASSWORD in .env}"
+    volumes:
+      - ./docker/mongo-provision-roles.js:/provision.js:ro
+    restart: "no"
+    command:
+      - bash
+      - -c
+      - |
+        mongosh --quiet \
+          --host mongo:27017 \
+          -u "$$MONGO_ROOT_USERNAME" \
+          -p "$$MONGO_ROOT_PASSWORD" \
+          --authenticationDatabase admin \
+          /provision.js
+
+  api:
+    depends_on:
+      mongo:
+        condition: service_healthy
+      mongo-provision:
+        # Wait for the role and user to exist, or the API's first connection
+        # would fail to authenticate and the container would crash-loop.
+        condition: service_completed_successfully
+    environment:
+      # The API now authenticates as the least-privilege user. authSource is
+      # the ledgerlock database because that is where the user was created.
+      MONGODB_URI: "mongodb://${MONGO_APP_USERNAME:-ledgerlock_app}:${MONGO_APP_PASSWORD:?}@mongo:27017/?directConnection=true&authSource=ledgerlock"
+
+volumes:
+  mongo_keyfile:

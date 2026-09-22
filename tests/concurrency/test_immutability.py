@@ -21,19 +21,25 @@ What is proven here:
 3. **A transaction cannot gain a third entry or a second entry on the same
    side**, because of the unique index on `(transaction_id, direction)`.
 
-What is NOT proven here, stated plainly:
+What is NOT proven *here*, and where it is proven instead:
 
-A client holding direct database credentials can still issue an update that
-happens to keep the document shape and sign convention valid, for example
-changing both `amount_minor` and `signed_amount_minor` together. MongoDB's
-`$jsonSchema` validators constrain the resulting document; they cannot
-compare it against the previous version, and MongoDB has no per-collection
-"append only" mode. Closing that gap needs privilege separation: a database
-role granting `find` and `insert` on `ledger_entries` but not `update` or
-`remove`. That is scheduled for the Phase 8 security pass and is recorded
-in MEMORY.md under Known Issues until it is done. Until then the honest
-claim is: immutable through the application, with database-enforced shape
-and sign invariants on every write.
+A client holding unrestricted database credentials can still issue an update
+that keeps the document shape and sign convention valid, for example changing
+`amount_minor` and `signed_amount_minor` together. A `$jsonSchema` validator
+constrains the resulting document; it cannot compare it against the previous
+version. This file runs against the default local profile, whose MongoDB has
+no authentication, so its own connection is effectively a superuser and that
+update succeeds. There is a test asserting exactly that, so the boundary is
+explicit rather than glossed over.
+
+That gap is closed by privilege separation in the hardened profile: a role
+granting `find` and `insert` on `ledger_entries` and `transactions` but not
+`update` or `remove`. Verified by `scripts/verify_append_only.sh` against
+`docker-compose.hardened.yml`, where all nine mutation attempts (update,
+replace, delete, drop collection, drop database, and the same against
+`transactions`) are refused with Unauthorized while insert and find still
+work and the full end-to-end flow still passes. Captured output:
+`tests/concurrency/results/phase8-append-only-privileges-*.txt`.
 """
 
 from __future__ import annotations
@@ -312,27 +318,30 @@ async def test_a_transaction_cannot_gain_a_second_entry_on_the_same_side(
     )
 
 
-async def test_the_recorded_limit_a_privileged_update_can_still_succeed(
+async def test_a_self_consistent_update_succeeds_without_privilege_separation(
     app_database: AsyncIOMotorDatabase, committed_entry: dict
 ) -> None:
-    """Documents the gap honestly, as a test rather than only as prose.
+    """Scopes exactly what the validators do and do not prevent.
 
-    A caller with direct database credentials CAN rewrite an entry if it
-    keeps the shape and sign convention consistent, because a
-    `$jsonSchema` validator can only judge the resulting document, never
-    compare it with the previous one. MongoDB offers no per-collection
-    append-only mode.
+    A caller with *unrestricted* database credentials can rewrite an entry if
+    the result stays self-consistent, because a `$jsonSchema` validator judges
+    only the resulting document and cannot compare it with the previous one.
+    This test runs under the default local profile, whose MongoDB has no
+    authentication, so the test's own connection is effectively a superuser.
 
-    This test asserts that the tamper succeeds, which is deliberately
-    uncomfortable. Writing it down as an executable fact means the
-    limitation cannot quietly be forgotten, and means the README cannot
-    claim more than is true. Closing it requires privilege separation (a
-    role with `insert` but not `update` on this collection), scheduled for
-    the Phase 8 security pass.
+    That gap is closed in the hardened profile, and this test's continued
+    passing is what makes the distinction precise rather than hand-waved:
 
-    Note what the tamper does NOT escape: it unbalances the ledger, and the
-    reconciliation check finds it. Detection is not prevention, but it is
-    the difference between a silent corruption and a loud one.
+    * validators alone: a self-consistent update succeeds (asserted here)
+    * plus privilege separation: the same update fails with Unauthorized,
+      because the application's role holds `insert` but not `update` on
+      `ledger_entries`. Verified by `scripts/verify_append_only.sh` against
+      `docker-compose.hardened.yml`; captured output is in
+      `tests/concurrency/results/phase8-append-only-privileges-*.txt`.
+
+    Note what the tamper does not escape even here: it unbalances the ledger,
+    and reconciliation finds it. Detection is not prevention, but it is the
+    difference between silent corruption and loud corruption.
     """
     from app.services import reconciliation as reconciliation_service
 
@@ -343,18 +352,20 @@ async def test_the_recorded_limit_a_privileged_update_can_still_succeed(
         {"$set": {"amount_minor": 9_999, "signed_amount_minor": -9_999}},
     )
     assert result.modified_count == 1, (
-        "if this now fails, privilege separation has been implemented and "
-        "this test should be inverted to assert the write is refused"
+        "the update was refused. If this suite is now being run against the "
+        "hardened profile, that is the correct outcome and this test belongs "
+        "with the append-only verification instead."
     )
 
     report = await reconciliation_service.reconcile(app_database)
 
     print(
-        "\nKNOWN LIMIT TEST: a consistent direct-database update DID succeed "
-        "(validator can only judge the resulting document)"
+        "\nVALIDATOR SCOPE TEST: with unrestricted credentials, a "
+        "self-consistent update DID succeed (a validator judges only the "
+        "resulting document). The hardened profile refuses it outright."
     )
     print(
-        f"KNOWN LIMIT TEST: reconciliation caught it -> healthy="
+        f"VALIDATOR SCOPE TEST: reconciliation caught it -> healthy="
         f"{report.healthy}, net_signed_minor={report.net_signed_minor}, "
         f"unbalanced_transaction_groups={report.unbalanced_transaction_groups}"
     )

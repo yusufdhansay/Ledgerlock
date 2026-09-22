@@ -19,6 +19,7 @@ from app.core import db
 from app.core.config import get_settings
 from app.core.errors import register_exception_handlers
 from app.core.logging_config import configure_logging, get_logger
+from app.core.rate_limit import register_rate_limiting
 from app.routes import accounts, auth, reconciliation, transactions
 from app.services import account_service
 
@@ -88,6 +89,9 @@ def create_app() -> FastAPI:
     )
 
     register_exception_handlers(app)
+    # Registered after the generic handlers so the RateLimitExceeded handler
+    # is the one that runs for a 429, keeping the standard error envelope.
+    register_rate_limiting(app)
     app.include_router(auth.router)
     app.include_router(accounts.router)
     app.include_router(transactions.router)

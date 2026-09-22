@@ -34,6 +34,28 @@ docker compose up -d --build
 
 API docs are at http://localhost:8000/docs once the stack is up.
 
+## Run it hardened
+
+The default compose profile runs MongoDB without authentication, which suits a
+local development and test stack: the test suite creates and drops databases,
+which a least-privilege user deliberately cannot do.
+
+The hardened overlay is what a deployment should use. It turns on MongoDB
+authentication and runs the API under a role that holds `insert` and `find` on
+`ledger_entries` and `transactions` but **not** `update` or `remove`, so ledger
+immutability becomes a constraint the database enforces rather than a property
+of the application code happening not to issue an update.
+
+```bash
+# Set MONGO_ROOT_PASSWORD and MONGO_APP_PASSWORD in .env first (see .env.example)
+docker compose -f docker-compose.yml -f docker-compose.hardened.yml up -d --build
+
+# Proves the application's own credentials can append and read but cannot
+# update, replace, delete or drop ledger entries, while the full end-to-end
+# flow still works.
+./scripts/verify_append_only.sh
+```
+
 ## Run it on Kubernetes
 
 ```bash

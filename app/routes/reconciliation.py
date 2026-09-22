@@ -8,9 +8,10 @@ suite.
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Request, status
 
 from app.core.logging_config import get_logger
+from app.core.rate_limit import default_limit, limiter, rate_limiting_is_disabled
 from app.core.security import AuthenticatedUser, get_current_user
 from app.models.ledger_entry import ReconciliationReport
 from app.services import reconciliation as reconciliation_service
@@ -25,9 +26,14 @@ router = APIRouter(prefix="/reconciliation", tags=["reconciliation"])
     response_model=ReconciliationReport,
     status_code=status.HTTP_200_OK,
     summary="Check that the entire ledger nets to zero",
-    responses={401: {"description": "UNAUTHENTICATED"}},
+    responses={
+        401: {"description": "UNAUTHENTICATED"},
+        429: {"description": "RATE_LIMITED"},
+    },
 )
+@limiter.limit(default_limit, exempt_when=rate_limiting_is_disabled)
 async def read_reconciliation(
+    request: Request,
     user: AuthenticatedUser = Depends(get_current_user),
 ) -> ReconciliationReport:
     """Sum every ledger entry in the system and report whether it is sound.

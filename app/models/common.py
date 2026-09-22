@@ -43,9 +43,22 @@ ObjectIdStr = Annotated[
 AmountMinor = Annotated[
     int,
     Field(
+        # strict=True is load-bearing, not tidiness. Pydantic's default lax
+        # coercion accepts `True` as the integer 1 (bool subclasses int in
+        # Python), the string "100" as 100, and the float 10.0 as 10. A
+        # transfer of `true` minor units silently becoming a transfer of 1 is
+        # exactly the class of quiet wrongness a ledger must not permit, so
+        # every one of those is rejected instead. Found by the Phase 8
+        # injection tests, which submitted `True` as an amount and watched it
+        # reach the sufficiency check as 1.
+        strict=True,
         gt=0,
         le=1_000_000_000_000,
-        description="Amount in minor units (e.g. cents). Must be a positive integer.",
+        description=(
+            "Amount in minor units (e.g. cents). Must be a positive integer. "
+            "Strictly typed: booleans, numeric strings and floats are "
+            "rejected rather than coerced."
+        ),
         examples=[2500],
     ),
 ]

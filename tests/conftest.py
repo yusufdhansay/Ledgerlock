@@ -34,6 +34,12 @@ os.environ["JWT_SECRET_KEY"] = (
 os.environ["BCRYPT_ROUNDS"] = "4"
 os.environ["APP_ENV"] = "test"
 os.environ["LOG_LEVEL"] = "WARNING"
+# Rate limiting off by default for the suite. Many tests fire 50-100 requests
+# at once to exercise concurrency, and a limiter would fail them for a reason
+# that has nothing to do with what they are testing. The tests in
+# tests/unit/test_rate_limit.py turn it back on, which is where limiting is
+# actually verified.
+os.environ["RATE_LIMIT_ENABLED"] = "false"
 
 import pytest  # noqa: E402
 from asgi_lifespan import LifespanManager  # noqa: E402

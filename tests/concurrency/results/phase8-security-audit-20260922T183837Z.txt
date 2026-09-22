@@ -1,0 +1,54 @@
+Ledgerlock Phase 8 security audit
+Captured: 2026-09-22T18:38:37Z UTC
+Host:     Darwin 25.6.0 arm64
+Python:   Python 3.12.9
+================================================================
+
+### 1. Dependency vulnerability scan
+$ pip-audit --requirement requirements.txt --requirement requirements-dev.txt --strict
+No known vulnerabilities found
+
+### 2. Committed secret scan
+$ ./scripts/audit_secrets.sh
+==> Checking that no environment or key file is tracked
+  done
+==> Checking for a real-looking JWT signing key
+  done
+==> Checking for MongoDB connection strings with embedded credentials
+  done
+==> Checking for well-known cloud credential formats
+  done
+==> Checking that .gitignore covers secrets and local state
+  done
+==> Checking that the Kubernetes secret template holds no value
+  done
+
+SECRET AUDIT PASSED: no committed secrets found
+
+### 3. Static analysis incl. bandit security rules (ruff S ruleset)
+$ ruff check app tests
+All checks passed!
+
+### 4. Formatting
+$ black --check app tests
+All done! ✨ 🍰 ✨
+42 files would be left unchanged.
+
+### 5. Injection and input-validation tests
+$ pytest tests/unit/test_injection.py -q
+........................................................................ [100%]
+72 passed in 5.56s
+
+### 6. Rate limiting tests
+$ pytest tests/unit/test_rate_limit.py -q
+.......                                                                  [100%]
+7 passed in 0.78s
+
+### 7. Configuration refusal tests (no default signing key, etc.)
+$ pytest tests/unit/test_config.py -q
+......................................                                   [100%]
+38 passed in 0.09s
+
+### 8. Append-only ledger via privilege separation
+See phase8-append-only-privileges-*.txt in this directory.
+Summary: 17 assertions passed; 9 mutation attempts refused Unauthorized.

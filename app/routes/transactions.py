@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Header, status
+from fastapi import APIRouter, Depends, Header, Request, status
 from pydantic import TypeAdapter, ValidationError
 
 from app.core.errors import (
@@ -21,6 +21,12 @@ from app.core.errors import (
     TransactionNotFoundError,
 )
 from app.core.logging_config import get_logger
+from app.core.rate_limit import (
+    default_limit,
+    limiter,
+    rate_limiting_is_disabled,
+    transaction_limit,
+)
 from app.core.security import AuthenticatedUser, get_current_user
 from app.models.common import IdempotencyKey, ObjectIdStr, to_object_id
 from app.models.transaction import (
@@ -90,9 +96,12 @@ async def require_idempotency_key(
                 "SAME_ACCOUNT_TRANSFER / MALFORMED_IDEMPOTENCY_KEY"
             )
         },
+        429: {"description": "RATE_LIMITED"},
     },
 )
+@limiter.limit(transaction_limit, exempt_when=rate_limiting_is_disabled)
 async def create_transaction(
+    request: Request,
     payload: TransferCreateRequest,
     idempotency_key: str = Depends(require_idempotency_key),
     user: AuthenticatedUser = Depends(get_current_user),
@@ -156,9 +165,12 @@ async def create_transaction(
     responses={
         401: {"description": "UNAUTHENTICATED"},
         404: {"description": "NOT_FOUND"},
+        429: {"description": "RATE_LIMITED"},
     },
 )
+@limiter.limit(default_limit, exempt_when=rate_limiting_is_disabled)
 async def read_transaction(
+    request: Request,
     transaction_id: ObjectIdStr,
     user: AuthenticatedUser = Depends(get_current_user),
 ) -> TransactionPublic:

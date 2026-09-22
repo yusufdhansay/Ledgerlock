@@ -7,12 +7,18 @@ a read-only projection of the ledger.
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, Query, Request, status
 from pydantic import BaseModel
 
 from app.core.config import Settings, get_settings
 from app.core.errors import UnsupportedCurrencyError
 from app.core.logging_config import get_logger
+from app.core.rate_limit import (
+    default_limit,
+    limiter,
+    rate_limiting_is_disabled,
+    transaction_limit,
+)
 from app.core.security import AuthenticatedUser, get_current_user
 from app.models.account import (
     AccountCreateRequest,
@@ -48,9 +54,12 @@ class AccountListResponse(BaseModel):
     responses={
         401: {"description": "UNAUTHENTICATED"},
         422: {"description": "MALFORMED_REQUEST / UNSUPPORTED_CURRENCY"},
+        429: {"description": "RATE_LIMITED"},
     },
 )
+@limiter.limit(default_limit, exempt_when=rate_limiting_is_disabled)
 async def create_account(
+    request: Request,
     payload: AccountCreateRequest,
     user: AuthenticatedUser = Depends(get_current_user),
     settings: Settings = Depends(get_settings),
@@ -82,9 +91,14 @@ async def create_account(
     response_model=AccountListResponse,
     status_code=status.HTTP_200_OK,
     summary="List the caller's accounts",
-    responses={401: {"description": "UNAUTHENTICATED"}},
+    responses={
+        401: {"description": "UNAUTHENTICATED"},
+        429: {"description": "RATE_LIMITED"},
+    },
 )
+@limiter.limit(default_limit, exempt_when=rate_limiting_is_disabled)
 async def list_accounts(
+    request: Request,
     limit: int = Query(
         default=account_service.DEFAULT_PAGE_SIZE,
         ge=1,
@@ -111,9 +125,12 @@ async def list_accounts(
     responses={
         401: {"description": "UNAUTHENTICATED"},
         404: {"description": "ACCOUNT_NOT_FOUND"},
+        429: {"description": "RATE_LIMITED"},
     },
 )
+@limiter.limit(default_limit, exempt_when=rate_limiting_is_disabled)
 async def read_account(
+    request: Request,
     account_id: ObjectIdStr,
     user: AuthenticatedUser = Depends(get_current_user),
 ) -> AccountPublic:
@@ -134,9 +151,12 @@ async def read_account(
     responses={
         401: {"description": "UNAUTHENTICATED"},
         404: {"description": "ACCOUNT_NOT_FOUND"},
+        429: {"description": "RATE_LIMITED"},
     },
 )
+@limiter.limit(default_limit, exempt_when=rate_limiting_is_disabled)
 async def read_balance(
+    request: Request,
     account_id: ObjectIdStr,
     user: AuthenticatedUser = Depends(get_current_user),
 ) -> BalanceResponse:
@@ -167,9 +187,12 @@ async def read_balance(
         404: {"description": "ACCOUNT_NOT_FOUND"},
         409: {"description": "DUPLICATE_SUBMISSION / ACCOUNT_NOT_ACTIVE"},
         422: {"description": "MALFORMED_REQUEST / CURRENCY_MISMATCH"},
+        429: {"description": "RATE_LIMITED"},
     },
 )
+@limiter.limit(transaction_limit, exempt_when=rate_limiting_is_disabled)
 async def fund_account(
+    request: Request,
     account_id: ObjectIdStr,
     payload: FundingCreateRequest,
     idempotency_key: str = Depends(require_idempotency_key),

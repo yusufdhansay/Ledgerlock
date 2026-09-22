@@ -118,9 +118,48 @@ class Settings(BaseSettings):
         return list(dict.fromkeys(normalised))
 
     # ---- Rate limiting (in-process; see MEMORY.md known limitations) --
-    rate_limit_auth: str = Field(default="10/minute")
-    rate_limit_transactions: str = Field(default="100/minute")
+    rate_limit_enabled: bool = Field(
+        default=True,
+        description=(
+            "Master switch, checked per request. Left on for any deployment. "
+            "The test suite turns it off because many tests fire a hundred "
+            "requests at once and a limiter would fail them for the wrong "
+            "reason; the tests that exist to verify limiting turn it back on. "
+            "The load test also turns it off, and says so in its report, "
+            "since otherwise it would measure the limiter rather than the "
+            "ledger."
+        ),
+    )
+    rate_limit_auth: str = Field(
+        default="10/minute",
+        description="Credential endpoints. Tightest: these are guessable.",
+    )
+    rate_limit_transactions: str = Field(
+        default="100/minute", description="Endpoints that write to the ledger."
+    )
     rate_limit_default: str = Field(default="200/minute")
+
+    @field_validator("rate_limit_auth", "rate_limit_transactions", "rate_limit_default")
+    @classmethod
+    def validate_rate_limit_string(cls, value: str) -> str:
+        """Reject a malformed limit at startup rather than at first request.
+
+        `slowapi` parses these lazily, so a typo like `10/minte` would
+        otherwise surface as an error on a live request path instead of as a
+        refusal to boot.
+        """
+        from limits import parse_many
+
+        try:
+            parsed = parse_many(value)
+        except ValueError as exc:
+            raise ValueError(
+                f"{value!r} is not a valid rate limit string "
+                '(expected something like "10/minute" or "100/hour")'
+            ) from exc
+        if not parsed:
+            raise ValueError(f"{value!r} did not parse to any rate limit")
+        return value
 
     @field_validator("jwt_secret_key")
     @classmethod

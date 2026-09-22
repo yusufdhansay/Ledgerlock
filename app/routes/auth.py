@@ -7,12 +7,18 @@ makes the responses non-leaky, which is commented where it matters.
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Request, status
 from pymongo.errors import DuplicateKeyError
 
 from app.core import db
 from app.core.errors import EmailAlreadyRegisteredError, InvalidCredentialsError
 from app.core.logging_config import get_logger
+from app.core.rate_limit import (
+    auth_limit,
+    default_limit,
+    limiter,
+    rate_limiting_is_disabled,
+)
 from app.core.security import (
     AuthenticatedUser,
     create_access_token,
@@ -44,9 +50,11 @@ router = APIRouter(prefix="/auth", tags=["auth"])
     responses={
         409: {"description": "EMAIL_ALREADY_REGISTERED"},
         422: {"description": "MALFORMED_REQUEST"},
+        429: {"description": "RATE_LIMITED"},
     },
 )
-async def register(payload: UserRegisterRequest) -> TokenResponse:
+@limiter.limit(auth_limit, exempt_when=rate_limiting_is_disabled)
+async def register(request: Request, payload: UserRegisterRequest) -> TokenResponse:
     """Create a user account.
 
     Passwords are hashed with bcrypt and never stored or logged in
@@ -86,9 +94,13 @@ async def register(payload: UserRegisterRequest) -> TokenResponse:
     response_model=TokenResponse,
     status_code=status.HTTP_200_OK,
     summary="Exchange credentials for an access token",
-    responses={401: {"description": "INVALID_CREDENTIALS"}},
+    responses={
+        401: {"description": "INVALID_CREDENTIALS"},
+        429: {"description": "RATE_LIMITED"},
+    },
 )
-async def login(payload: UserLoginRequest) -> TokenResponse:
+@limiter.limit(auth_limit, exempt_when=rate_limiting_is_disabled)
+async def login(request: Request, payload: UserLoginRequest) -> TokenResponse:
     """Authenticate and receive an access token.
 
     Both failure modes (unknown email, wrong password) return the identical
@@ -127,9 +139,14 @@ async def login(payload: UserLoginRequest) -> TokenResponse:
     response_model=LogoutResponse,
     status_code=status.HTTP_200_OK,
     summary="Revoke the access token used to make this request",
-    responses={401: {"description": "UNAUTHENTICATED / TOKEN_REVOKED"}},
+    responses={
+        401: {"description": "UNAUTHENTICATED / TOKEN_REVOKED"},
+        429: {"description": "RATE_LIMITED"},
+    },
 )
+@limiter.limit(default_limit, exempt_when=rate_limiting_is_disabled)
 async def logout(
+    request: Request,
     user: AuthenticatedUser = Depends(get_current_user),
 ) -> LogoutResponse:
     """Revoke the presented token.
@@ -148,9 +165,14 @@ async def logout(
     response_model=UserPublic,
     status_code=status.HTTP_200_OK,
     summary="Return the authenticated user",
-    responses={401: {"description": "UNAUTHENTICATED / TOKEN_REVOKED"}},
+    responses={
+        401: {"description": "UNAUTHENTICATED / TOKEN_REVOKED"},
+        429: {"description": "RATE_LIMITED"},
+    },
 )
+@limiter.limit(default_limit, exempt_when=rate_limiting_is_disabled)
 async def read_current_user(
+    request: Request,
     user: AuthenticatedUser = Depends(get_current_user),
 ) -> UserPublic:
     """Return the caller's own user record. Never includes the password hash."""

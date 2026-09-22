@@ -1,0 +1,176 @@
+Ledgerlock Phase 8: append-only ledger enforced by MongoDB authorisation
+Captured: 2026-09-22T18:34:56Z UTC
+Command:  ./scripts/verify_append_only.sh
+Stack:    docker compose -f docker-compose.yml -f docker-compose.hardened.yml
+          (fresh volumes, so role provisioning is exercised cold)
+MongoDB:  mongo:7.0, replica set rs0, --auth with a generated keyfile
+Role:     ledgerlockAppendOnlyLedger
+Host:     Darwin 25.6.0 arm64
+
+This closes the gap recorded in MEMORY.md since Phase 4. Until now,
+immutability rested on there being no code path that issues an update,
+plus validators that reject a write whose shape or sign is wrong. A
+validator can only judge the resulting document, so a self-consistent
+update still succeeded. Under this profile the application's own
+credentials lack the update and remove privileges on ledger_entries and
+transactions, so such an update fails with Unauthorized regardless of
+what the application code does.
+================================================================
+
+
+==> Bringing up the hardened stack (MongoDB with auth + least privilege)
+ Image ledgerlock-api:local Building 
+ Image ledgerlock-api:local Built 
+ Volume ledgerlock_mongo_keyfile Creating 
+ Network ledgerlock_default Creating 
+ Volume ledgerlock_mongo_data Creating 
+ Volume ledgerlock_mongo_data Creating 
+ Volume ledgerlock_mongo_keyfile Creating 
+ Network ledgerlock_default Creating 
+ Volume ledgerlock_mongo_data Created 
+ Volume ledgerlock_mongo_data Created 
+ Volume ledgerlock_mongo_keyfile Created 
+ Volume ledgerlock_mongo_keyfile Created 
+ Network ledgerlock_default Created 
+ Network ledgerlock_default Created 
+ Container ledgerlock-mongo Creating 
+ Container ledgerlock-mongo Created 
+ Container ledgerlock-mongo-provision Creating 
+ Container ledgerlock-mongo-provision Created 
+ Container ledgerlock-api Creating 
+ Container ledgerlock-api Created 
+ Container ledgerlock-mongo Starting 
+ Container ledgerlock-mongo Started 
+ Container ledgerlock-mongo Waiting 
+ Container ledgerlock-mongo Healthy 
+ Container ledgerlock-mongo-provision Starting 
+ Container ledgerlock-mongo-provision Started 
+ Container ledgerlock-mongo Waiting 
+ Container ledgerlock-mongo-provision Waiting 
+ Container ledgerlock-mongo-provision Exited 
+ Container ledgerlock-mongo Healthy 
+ Container ledgerlock-api Starting 
+ Container ledgerlock-api Started 
+    waiting for the API to report ready. ok
+    {"status":"ready","replica_set":"rs0"}
+
+    role provisioning output:
+      [provision] created role ledgerlockAppendOnlyLedger
+      [provision] created user ledgerlock_app
+      [provision] append-only collections: ledger_entries, transactions
+      [provision] mutable collections:     users, accounts, revoked_tokens
+      [provision] done
+
+==> Confirming authentication is actually enforced
+    anonymous read -> REFUSED:Unauthorized
+    PASS an unauthenticated client cannot read the ledger
+
+==> Running the full end-to-end flow under the restricted role
+
+==> Waiting for the API to become ready
+    readiness: {"status":"ready","replica_set":"rs0"}
+    PASS readiness status (= ready)
+    PASS connected to replica set (= rs0)
+
+==> Registering a user
+    PASS received an access token
+
+==> Opening two accounts
+    source:      6ab2ca3ae6919e7b8bcf35d5
+    destination: 6ab2ca3ae6919e7b8bcf35d6
+    PASS account starts ACTIVE (= ACTIVE)
+    PASS account is a USER account (= USER)
+    PASS new account balance is zero (= 0)
+    PASS new account entry count is zero (= 0)
+
+==> Funding the source account with 100000 minor units
+    PASS funding status (= COMPLETED)
+    PASS funding kind (= FUNDING)
+    PASS balance after funding (= 100000)
+    PASS entry count after funding (= 1)
+
+==> Transferring 25000 between the accounts
+    PASS transfer status (= COMPLETED)
+    PASS source balance after transfer (= 75000)
+    PASS destination balance after transfer (= 25000)
+    PASS balance response carries its currency (= USD)
+    PASS transaction can be read back (= 25000)
+
+==> Replaying one idempotency key 10 times concurrently
+    statuses: 201 x 1, 409 x 9
+    PASS exactly one replayed submission was accepted (= 1)
+    PASS the other nine were rejected as duplicates (= 9)
+    PASS the replayed transfer was applied exactly once (= 26000)
+
+==> Firing 30 concurrent debits that together exceed the balance
+    balance before the race: 74000
+    statuses: 201 x 14, 422 x 16
+    final source balance: 4000
+    PASS the account never went negative (balance 4000)
+    PASS exactly the affordable number of debits succeeded (= 14)
+    PASS remaining balance is exact (= 4000)
+
+==> Reconciling the whole ledger
+    report: {"balanced":true,"healthy":true,"net_signed_minor":0,"total_entries":34,"total_transactions":17,"entries_without_transaction":0,"unbalanced_transaction_groups":0,"negative_user_accounts":[],"per_currency_net_minor":{"USD":0},"checked_at":"2026-09-22T18:34:39.877453Z"}
+    PASS net_signed_minor (= 0)
+    PASS balanced (= True)
+    PASS healthy (= True)
+    PASS entries without a transaction (= 0)
+    PASS unbalanced transaction groups (= 0)
+    PASS negative USER accounts (= 0)
+    PASS two ledger entries per transaction, exactly (= True)
+
+==> Checking that ledger data cannot be mutated over HTTP
+    PASS PUT /transactions/{id} refused (405)
+    PASS PATCH /transactions/{id} refused (405)
+    PASS DELETE /transactions/{id} refused (405)
+    PASS PUT /accounts/{id}/balance refused (405) — balance is not stored
+
+==> Result
+    33 passed, 0 failed
+    END-TO-END VERIFICATION PASSED
+    PASS the full end-to-end verification passed under the restricted role
+
+==> The point of the exercise: can the application tamper with an entry?
+    read:ALLOWED
+    insert:ALLOWED
+    update_amount:REFUSED:Unauthorized
+    update_direction:REFUSED:Unauthorized
+    replace:REFUSED:Unauthorized
+    delete_one:REFUSED:Unauthorized
+    delete_many:REFUSED:Unauthorized
+    drop_collection:REFUSED:Unauthorized
+    txn_update:REFUSED:Unauthorized
+    txn_delete:REFUSED:Unauthorized
+    drop_database:REFUSED:Unauthorized
+
+    PASS read is permitted (the role is not merely broken)
+    PASS insert is permitted (the role is not merely broken)
+    PASS update_amount refused with Unauthorized
+    PASS update_direction refused with Unauthorized
+    PASS replace refused with Unauthorized
+    PASS delete_one refused with Unauthorized
+    PASS delete_many refused with Unauthorized
+    PASS drop_collection refused with Unauthorized
+    PASS txn_update refused with Unauthorized
+    PASS txn_delete refused with Unauthorized
+    PASS drop_database refused with Unauthorized
+
+==> Confirming no existing entry was altered
+    inconsistent_entries:0
+    amount_999999_entries:0
+    PASS no entry violates the sign convention
+    PASS the attempted amount tamper (999999) is nowhere in the ledger
+
+==> Reconciliation, which should now flag the probe's own insert
+    {"balanced":false,"healthy":false,"net_signed_minor":1,"total_entries":35,"total_transactions":17,"entries_without_transaction":1,"unbalanced_transaction_groups":1,"negative_user_accounts":[],"per_currency_net_minor":{"USD":1},"checked_at":"2026-09-22T18:34:42.224281Z"}
+    PASS reconciliation detected the probe's orphaned append (net=1, orphans=1)
+    PASS no USER account is negative
+
+==> Result
+    17 passed, 0 failed
+    APPEND-ONLY VERIFICATION PASSED
+
+    Ledger entries cannot be updated or deleted by the credentials the
+    application holds. Immutability is enforced by MongoDB's
+    authorisation system, not by the absence of an offending code path.
