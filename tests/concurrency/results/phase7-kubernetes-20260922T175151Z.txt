@@ -1,0 +1,224 @@
+Ledgerlock Phase 7 Kubernetes verification (kind)
+Captured:     2026-09-22T17:51:51Z UTC
+Command:      ./scripts/verify_k8s.sh   (from a deleted cluster, so this is a full cold run)
+kind:         kind v0.33.0 go1.27.0 darwin/amd64
+kubectl:      v1.36.1
+Node image:   kindest/node:v1.37.0
+API image:    ledgerlock-api:local (python:3.12.9-slim, non-root uid 1001)
+MongoDB:      mongo:7.0 StatefulSet, single-node replica set rs0
+API replicas: 2 (Deployment), fronted by a ClusterIP Service
+Host:         Darwin 25.6.0 arm64
+
+What this adds over the Phase 5 compose verification: the same 33
+assertions, but now against TWO separate API pods behind a Service,
+sharing one MongoDB. The concurrency assertions therefore span
+processes AND pods, which no earlier phase exercised. Requests arrive
+via kubectl port-forward to the Service, so they are spread across both
+replicas.
+
+Note: application JSON log lines and docker build output were filtered
+out of this capture for readability. Nothing else was altered.
+================================================================
+
+
+==> Creating the kind cluster (if it does not already exist)
+Creating cluster "ledgerlock" ...
+ • Ensuring node image (kindest/node:v1.37.0) 🖼️  ...
+ ✓ Ensuring node image (kindest/node:v1.37.0) 🖼️
+ • Preparing nodes 📦   ...
+ ✓ Preparing nodes 📦 
+ • Writing configuration 📜  ...
+ ✓ Writing configuration 📜
+ • Starting control-plane 🕹️  ...
+ ✓ Starting control-plane 🕹️
+ • Installing CNI 🔌  ...
+ ✓ Installing CNI 🔌
+ • Installing StorageClass 💾  ...
+ ✓ Installing StorageClass 💾
+ • Waiting ≤ 2m0s for control-plane = Ready ⏳  ...
+ ✓ Waiting ≤ 2m0s for control-plane = Ready ⏳
+ • Ready after 17s 💚
+Set kubectl context to "kind-ledgerlock"
+You can now use your cluster with:
+
+kubectl cluster-info --context kind-ledgerlock
+
+Thanks for using kind! 😊
+Kubernetes control plane is running at https://127.0.0.1:61641
+CoreDNS is running at https://127.0.0.1:61641/api/v1/namespaces/kube-system/services/kube-dns:dns/proxy
+
+==> Building the image and side-loading it into the cluster
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Image: "ledgerlock-api:local" with ID "sha256:a5a2cc68305d677e29a70b71bb9aebfc7fcf17b144a923762360a44052eb142a" not yet present on node "ledgerlock-control-plane", loading...
+    loaded ledgerlock-api:local
+    could not side-load mongo:7.0; the kubelet will pull it
+    (multi-platform manifest lists cannot be imported into kind)
+
+==> Installing metrics-server (kind ships without one)
+Waiting for deployment "metrics-server" rollout to finish: 1 old replicas are pending termination...
+Waiting for deployment "metrics-server" rollout to finish: 1 old replicas are pending termination...
+Waiting for deployment "metrics-server" rollout to finish: 1 old replicas are pending termination...
+deployment "metrics-server" successfully rolled out
+
+==> Applying namespace, config, and the JWT secret
+namespace/ledgerlock created
+configmap/ledgerlock-config created
+    secret ledgerlock-secrets created from a freshly generated key
+
+==> Deploying MongoDB and initiating the replica set
+service/ledgerlock-mongo created
+statefulset.apps/ledgerlock-mongo created
+    waiting for the mongo pod to start...
+pod/ledgerlock-mongo-0 condition met
+job.batch/ledgerlock-mongo-init created
+    waiting for the replica set init job...
+job.batch/ledgerlock-mongo-init condition met
+    waiting for mongod at ledgerlock-mongo-0.ledgerlock-mongo.ledgerlock.svc.cluster.local to answer...
+    mongod is answering (attempt 1)
+    initiating replica set rs0 if it is not already initiated...
+    initiating: NotYetInitialized
+    { ok: 1 }
+    waiting for a writable primary...
+    primary is writable after 1 attempt(s)
+    set=rs0
+    member=ledgerlock-mongo-0.ledgerlock-mongo.ledgerlock.svc.cluster.local:27017 state=PRIMARY
+    waiting for the mongo pod to report Ready (writable primary)...
+pod/ledgerlock-mongo-0 condition met
+
+==> Deploying the API, Service, and HPA
+deployment.apps/ledgerlock-api created
+service/ledgerlock-api created
+horizontalpodautoscaler.autoscaling/ledgerlock-api created
+    waiting for the rollout...
+Waiting for deployment "ledgerlock-api" rollout to finish: 0 of 2 updated replicas are available...
+Waiting for deployment "ledgerlock-api" rollout to finish: 1 of 2 updated replicas are available...
+deployment "ledgerlock-api" successfully rolled out
+
+NAME                              READY   STATUS      RESTARTS   AGE   IP            NODE                       NOMINATED NODE   READINESS GATES
+ledgerlock-api-75957b9d57-bpc5x   1/1     Running     0          15s   10.244.0.11   ledgerlock-control-plane   <none>           <none>
+ledgerlock-api-75957b9d57-kz8zx   1/1     Running     0          15s   10.244.0.10   ledgerlock-control-plane   <none>           <none>
+ledgerlock-mongo-0                1/1     Running     0          3m    10.244.0.8    ledgerlock-control-plane   <none>           <none>
+ledgerlock-mongo-init-g2688       0/1     Completed   0          29s   10.244.0.9    ledgerlock-control-plane   <none>           <none>
+
+NAME               TYPE        CLUSTER-IP      EXTERNAL-IP   PORT(S)     AGE
+ledgerlock-api     ClusterIP   10.96.132.103   <none>        80/TCP      15s
+ledgerlock-mongo   ClusterIP   None            <none>        27017/TCP   3m
+
+NAME             REFERENCE                   TARGETS                                     MINPODS   MAXPODS   REPLICAS   AGE
+ledgerlock-api   Deployment/ledgerlock-api   cpu: <unknown>/70%, memory: <unknown>/80%   2         8         2          15s
+
+==> Checking readiness gating
+Warning: v1 Endpoints is deprecated in v1.33+; use discovery.k8s.io/v1 EndpointSlice
+    ready replicas: 2
+    Service endpoints: 2
+    PASS both replicas are Ready
+    PASS both replicas are in the Service's endpoints
+
+==> Port-forwarding the Service and running the end-to-end verification
+    waiting for the port-forward ok
+
+
+==> Waiting for the API to become ready
+    readiness: {"status":"ready","replica_set":"rs0"}
+    PASS readiness status (= ready)
+    PASS connected to replica set (= rs0)
+
+==> Registering a user
+    PASS received an access token
+
+==> Opening two accounts
+    source:      6ab2bff87038175f7ceeb5ec
+    destination: 6ab2bff87038175f7ceeb5ed
+    PASS account starts ACTIVE (= ACTIVE)
+    PASS account is a USER account (= USER)
+    PASS new account balance is zero (= 0)
+    PASS new account entry count is zero (= 0)
+
+==> Funding the source account with 100000 minor units
+    PASS funding status (= COMPLETED)
+    PASS funding kind (= FUNDING)
+    PASS balance after funding (= 100000)
+    PASS entry count after funding (= 1)
+
+==> Transferring 25000 between the accounts
+    PASS transfer status (= COMPLETED)
+    PASS source balance after transfer (= 75000)
+    PASS destination balance after transfer (= 25000)
+    PASS balance response carries its currency (= USD)
+    PASS transaction can be read back (= 25000)
+
+==> Replaying one idempotency key 10 times concurrently
+    statuses: 201 x 1, 409 x 9
+    PASS exactly one replayed submission was accepted (= 1)
+    PASS the other nine were rejected as duplicates (= 9)
+    PASS the replayed transfer was applied exactly once (= 26000)
+
+==> Firing 30 concurrent debits that together exceed the balance
+    balance before the race: 74000
+    statuses: 201 x 14, 422 x 16
+    final source balance: 4000
+    PASS the account never went negative (balance 4000)
+    PASS exactly the affordable number of debits succeeded (= 14)
+    PASS remaining balance is exact (= 4000)
+
+==> Reconciling the whole ledger
+    report: {"balanced":true,"healthy":true,"net_signed_minor":0,"total_entries":34,"total_transactions":17,"entries_without_transaction":0,"unbalanced_transaction_groups":0,"negative_user_accounts":[],"per_currency_net_minor":{"USD":0},"checked_at":"2026-09-22T17:50:51.795440Z"}
+    PASS net_signed_minor (= 0)
+    PASS balanced (= True)
+    PASS healthy (= True)
+    PASS entries without a transaction (= 0)
+    PASS unbalanced transaction groups (= 0)
+    PASS negative USER accounts (= 0)
+    PASS two ledger entries per transaction, exactly (= True)
+
+==> Checking that ledger data cannot be mutated over HTTP
+    PASS PUT /transactions/{id} refused (405)
+    PASS PATCH /transactions/{id} refused (405)
+    PASS DELETE /transactions/{id} refused (405)
+    PASS PUT /accounts/{id}/balance refused (405) — balance is not stored
+
+==> Result
+    33 passed, 0 failed
+    END-TO-END VERIFICATION PASSED
+
+==> HPA metrics
+    waiting for metrics-server to report CPU for the API pods... ok
+
+    NAME                              CPU(cores)   MEMORY(bytes)   
+    ledgerlock-api-75957b9d57-bpc5x   64m          54Mi            
+    ledgerlock-api-75957b9d57-kz8zx   5m           48Mi            
+    ledgerlock-mongo-0                136m         229Mi           
+
+    NAME             REFERENCE                   TARGETS                         MINPODS   MAXPODS   REPLICAS   AGE
+    ledgerlock-api   Deployment/ledgerlock-api   cpu: 18%/70%, memory: 26%/80%   2         8         2          53s
+
+    Conditions:
+      Type            Status  Reason               Message
+      ----            ------  ------               -------
+      AbleToScale     True    ScaleDownStabilized  recent recommendations were higher than current one, applying the highest recent recommendation
+      ScalingActive   True    ValidMetricFound     the HPA was able to successfully calculate a replica count from cpu resource utilization (percentage of request)
+      ScalingLimited  False   DesiredWithinRange   the desired count is within the acceptable range
+    Events:
+
+    PASS the HPA computed a replica count from real CPU metrics (ScalingActive=True)
+    PASS HPA is holding at least minReplicas (currentReplicas=2)
+
+==> Result
+    KUBERNETES VERIFICATION PASSED
+
+Cluster 'ledgerlock' left running. Remove it with:
+  kind delete cluster --name ledgerlock

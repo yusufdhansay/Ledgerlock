@@ -1,0 +1,72 @@
+# Horizontal Pod Autoscaler for the API.
+#
+# Horizontal scaling is the right lever here precisely because the API is
+# stateless: correctness comes from MongoDB's transaction layer, not from any
+# process's memory, so adding pods adds capacity without weakening any
+# guarantee. Two pods debiting the same account contend on the same account
+# document and serialise exactly as two coroutines in one pod would.
+#
+# What scaling out does NOT fix, and this is the honest limit of the HPA
+# here: contention on a single hot account. Phase 6 measured that case at
+# 22.88x transaction-callback amplification, and that cost is a property of
+# how many clients want the same account, not of how many pods are serving
+# them. More pods would let more requests queue for the same document; they
+# would not make the document less contended. Recorded so this manifest is
+# not mistaken for a fix for that.
+#
+# Requires metrics-server for CPU metrics. kind does not ship it, so
+# scripts/verify_k8s.sh installs it; without it the HPA reports <unknown>
+# targets and will not scale.
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: ledgerlock-api
+  namespace: ledgerlock
+  labels:
+    app.kubernetes.io/name: ledgerlock
+    app.kubernetes.io/component: api
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: ledgerlock-api
+  minReplicas: 2
+  maxReplicas: 8
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          # Percentage of the container's CPU *request* (200m), not of a
+          # whole core. 70% leaves headroom for the retry bursts that
+          # contention produces, which are spiky rather than sustained.
+          type: Utilization
+          averageUtilization: 70
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80
+  behavior:
+    scaleUp:
+      # React quickly: a backlog of contended transfers builds latency fast.
+      stabilizationWindowSeconds: 30
+      policies:
+        - type: Percent
+          value: 100
+          periodSeconds: 30
+        - type: Pods
+          value: 2
+          periodSeconds: 30
+      selectPolicy: Max
+    scaleDown:
+      # Scale down slowly. Removing a pod mid-transfer is harmless to the
+      # ledger but pointless churn, and CPU usage here is bursty enough that
+      # a short window would cause flapping.
+      stabilizationWindowSeconds: 300
+      policies:
+        - type: Pods
+          value: 1
+          periodSeconds: 60
+      selectPolicy: Min

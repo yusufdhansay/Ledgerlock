@@ -1,0 +1,130 @@
+# MongoDB as a single-node replica set.
+#
+# A StatefulSet rather than a Deployment, and a headless Service rather than
+# a ClusterIP, for one specific reason: a replica set member has to be
+# reachable at the same stable hostname it advertises about itself. A
+# Deployment gives pods random names and a ClusterIP load-balances across
+# them, so the address a member published would not reliably resolve back to
+# that member. `ledgerlock-mongo-0.ledgerlock-mongo` is stable across
+# restarts and resolves to exactly one pod, which is what `rs.initiate()`
+# needs.
+#
+# Single node, which is correct for a local demonstration and wrong for
+# anything else: it is a single point of failure and `w: majority` on one
+# voting member is a much weaker durability guarantee than it sounds. A real
+# deployment would run three members across failure domains. The replica set
+# exists here because MongoDB requires one for multi-document transactions,
+# not because this configuration is highly available.
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ledgerlock-mongo
+  namespace: ledgerlock
+  labels:
+    app.kubernetes.io/name: ledgerlock
+    app.kubernetes.io/component: mongo
+spec:
+  # Headless: gives each pod its own stable DNS record instead of load
+  # balancing across them.
+  clusterIP: None
+  # Required, and the reason is a genuine bootstrap deadlock rather than a
+  # detail. By default a headless Service only publishes DNS records for
+  # pods that are Ready. This pod's readiness probe reports ready only once
+  # it is a writable primary; it becomes a writable primary only when
+  # rs.initiate() runs; and rs.initiate() has to address it by the very DNS
+  # name that will not exist until it is Ready. Without this flag the init
+  # Job sits forever on "waiting for mongod to answer" while the pod sits
+  # forever at 0/1, each waiting on the other.
+  publishNotReadyAddresses: true
+  selector:
+    app.kubernetes.io/name: ledgerlock
+    app.kubernetes.io/component: mongo
+  ports:
+    - name: mongo
+      port: 27017
+      targetPort: mongo
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ledgerlock-mongo
+  namespace: ledgerlock
+  labels:
+    app.kubernetes.io/name: ledgerlock
+    app.kubernetes.io/component: mongo
+spec:
+  serviceName: ledgerlock-mongo
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ledgerlock
+      app.kubernetes.io/component: mongo
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ledgerlock
+        app.kubernetes.io/component: mongo
+    spec:
+      terminationGracePeriodSeconds: 20
+      containers:
+        - name: mongo
+          image: mongo:7.0
+          args:
+            - "--replSet"
+            - "rs0"
+            - "--bind_ip_all"
+            - "--port"
+            - "27017"
+          ports:
+            - name: mongo
+              containerPort: 27017
+          resources:
+            requests:
+              cpu: "200m"
+              memory: "512Mi"
+            limits:
+              cpu: "1000m"
+              memory: "1Gi"
+          volumeMounts:
+            - name: data
+              mountPath: /data/db
+          # Liveness only asks whether mongod answers at all. It must NOT
+          # require replica set membership: before the init Job runs, the
+          # node is deliberately an uninitiated member, and a liveness probe
+          # that failed on that would restart the pod forever and the set
+          # could never be initiated.
+          livenessProbe:
+            exec:
+              command:
+                - mongosh
+                - --quiet
+                - --eval
+                - "db.adminCommand('ping')"
+            initialDelaySeconds: 15
+            periodSeconds: 15
+            timeoutSeconds: 10
+            failureThreshold: 4
+          # Readiness is stricter: it reports ready only once this node is a
+          # writable primary, which is when it can actually serve
+          # transactions. The API's own readiness check makes the same
+          # distinction for the same reason.
+          readinessProbe:
+            exec:
+              command:
+                - mongosh
+                - --quiet
+                - --eval
+                - "quit(db.hello().isWritablePrimary ? 0 : 1)"
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 10
+            failureThreshold: 30
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 2Gi

@@ -1,0 +1,27 @@
+# ClusterIP Service in front of the API pods.
+#
+# ClusterIP rather than LoadBalancer or NodePort: exposure belongs to an
+# Ingress or a gateway, which is environment-specific and out of scope here.
+# Local verification reaches it with `kubectl port-forward`.
+#
+# Only pods passing the readiness probe appear in this Service's endpoints,
+# so a pod that cannot reach a transaction-capable MongoDB primary receives
+# no traffic.
+apiVersion: v1
+kind: Service
+metadata:
+  name: ledgerlock-api
+  namespace: ledgerlock
+  labels:
+    app.kubernetes.io/name: ledgerlock
+    app.kubernetes.io/component: api
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: ledgerlock
+    app.kubernetes.io/component: api
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      protocol: TCP

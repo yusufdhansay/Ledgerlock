@@ -34,6 +34,18 @@ docker compose up -d --build
 
 API docs are at http://localhost:8000/docs once the stack is up.
 
+## Run it on Kubernetes
+
+```bash
+# Creates a local kind cluster, deploys MongoDB as a replica set and the API
+# with 2 replicas, installs metrics-server so the HPA actually works, then
+# runs the same end-to-end verification through the Service.
+./scripts/verify_k8s.sh
+
+# ...and tear the cluster down afterwards
+./scripts/verify_k8s.sh --clean
+```
+
 ## Run the tests
 
 ```bash

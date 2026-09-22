@@ -1,0 +1,140 @@
+# Ledgerlock API Deployment.
+#
+# Safe to run as a Deployment with several replicas, and worth saying why:
+# the API holds no state that matters. Balances are computed from the ledger
+# on every request, and the correctness guarantees live in MongoDB's
+# transaction layer rather than in any process's memory. Two replicas
+# handling two concurrent debits of the same account contend on the same
+# account document and serialise exactly as two coroutines in one process
+# would.
+#
+# The one piece of genuinely per-pod state is the in-process rate limiter's
+# counters, which is why that is documented as a known limitation rather than
+# claimed as a distributed limiter.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ledgerlock-api
+  namespace: ledgerlock
+  labels:
+    app.kubernetes.io/name: ledgerlock
+    app.kubernetes.io/component: api
+spec:
+  # A starting point only. The HPA owns this field once it is active, so
+  # changing it here after the fact has no lasting effect.
+  replicas: 2
+  revisionHistoryLimit: 5
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ledgerlock
+      app.kubernetes.io/component: api
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      # Never drop below the current replica count during a rollout, since
+      # the readiness gate already prevents a new pod from taking traffic
+      # before it can serve transactions.
+      maxUnavailable: 0
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ledgerlock
+        app.kubernetes.io/component: api
+    spec:
+      # Give in-flight transfers time to finish committing before the
+      # container is killed. A transfer interrupted mid-commit is not a
+      # correctness problem (MongoDB rolls it back), but returning an error
+      # to a client that could have been served is avoidable.
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        fsGroup: 1001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: api
+          image: ledgerlock-api:local
+          # Never: the image is built locally and side-loaded into kind, so
+          # there is no registry to pull from and a pull attempt would only
+          # produce ErrImagePull. A real deployment would use a tagged image
+          # from a registry with IfNotPresent.
+          imagePullPolicy: Never
+          ports:
+            - name: http
+              containerPort: 8000
+          envFrom:
+            - configMapRef:
+                name: ledgerlock-config
+          env:
+            - name: JWT_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: ledgerlock-secrets
+                  key: JWT_SECRET_KEY
+          # Requests are what the HPA computes CPU utilisation against: with
+          # no request, a CPU target is meaningless and the HPA reports
+          # <unknown>.
+          resources:
+            requests:
+              cpu: "200m"
+              memory: "192Mi"
+            limits:
+              # No CPU limit on purpose. Under write-conflict retries the
+              # service is briefly CPU-hungry, and a limit would cause CFS
+              # throttling that shows up as latency, making an already
+              # contended request slower for no benefit. The HPA handles
+              # sustained load by adding pods; memory is still capped because
+              # memory exhaustion cannot be absorbed the same way.
+              memory: "512Mi"
+          # Liveness: is the process alive? Deliberately hits /health, which
+          # makes no database call. A liveness probe that failed during a
+          # MongoDB outage would restart every healthy API pod and turn a
+          # database problem into a total outage.
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 15
+            timeoutSeconds: 3
+            failureThreshold: 3
+          # Readiness: can this pod actually serve? /health/ready confirms a
+          # reachable, transaction-capable replica set primary. A pod that
+          # cannot start a transaction cannot honour the atomicity guarantee,
+          # so it is removed from the Service's endpoints rather than sent
+          # traffic it would fail.
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          # Startup probe gives the app room to connect, verify the replica
+          # set, create indexes and provision SYSTEM accounts, without the
+          # liveness probe killing it mid-way on a slow first boot.
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 3
+            timeoutSeconds: 3
+            failureThreshold: 30
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        # The root filesystem is read-only; nothing in the app writes to
+        # disk, but Python may want a scratch directory.
+        - name: tmp
+          emptyDir: {}

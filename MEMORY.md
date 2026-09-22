@@ -4,7 +4,7 @@ This file is the persistent context across sessions. Read it first,
 every time, before doing anything else.
 
 ## Current Phase
-Phase 7: Kubernetes manifests — not started
+Phase 8: CI and security pass — not started
 
 ## Completed Phases
 
@@ -149,9 +149,25 @@ Phase 7: Kubernetes manifests — not started
   `tests/load/results/20260922T154105Z-scenario-5-hot-accounts/`
   `tests/load/results/20260922T154250Z-scenario-1-hot-account/`
 
+### Phase 7 — Kubernetes manifests (2026-09-22)
+- `k8s/namespace.yaml`, `configmap.yaml`, `secret.example.yaml`,
+  `mongo-statefulset.yaml` (headless Service + StatefulSet),
+  `mongo-init-job.yaml`, `api-deployment.yaml`, `api-service.yaml`,
+  `api-hpa.yaml`.
+- `scripts/verify_k8s.sh`: creates a `kind` cluster, builds and side-loads
+  the image, installs metrics-server, applies everything, initiates the
+  replica set, waits for rollout, then runs the Phase 5 end-to-end
+  assertions through a port-forward to the Service and asserts the HPA is
+  reading real CPU metrics.
+- **Verified for real against `kind`, from a deleted cluster (cold run), not
+  just linted.** 33/33 end-to-end assertions passed against 2 API pods
+  behind a Service, and the HPA reported `cpu: 18%/70%` with
+  `ScalingActive=True`.
+- Raw output: `tests/concurrency/results/phase7-kubernetes-20260922T175151Z.txt`
+
 ## In Progress
-Nothing in progress. Phase 6 closed; Phase 7 (Kubernetes manifests, tested
-against `kind`) is next.
+Nothing in progress. Phase 7 closed; Phase 8 (CI pipeline and security
+hardening) is next.
 
 ## Assumptions
 
@@ -658,6 +674,92 @@ against `kind`) is next.
   re-run must either raise the limits for the load profile or exempt it, and
   must say which it did.
 
+### Phase 7 assumptions and findings
+
+- **The manifests were verified by deploying them, not by linting them.**
+  TASK.md allows writing them correctly and noting that live verification is
+  still needed if no cluster is available. `kind` is installed, so there was
+  no reason to take that option. `scripts/verify_k8s.sh` does a cold run from
+  a deleted cluster and then runs the same 33 end-to-end assertions used for
+  compose. This matters because three of the problems below only appear when
+  you actually apply the YAML.
+- **A genuine bootstrap deadlock: `publishNotReadyAddresses: true` is
+  required on the headless Service.** By default a headless Service publishes
+  DNS records only for pods that are Ready. The mongo pod's readiness probe
+  reports ready only once it is a writable primary; it becomes a writable
+  primary only when `rs.initiate()` runs; and `rs.initiate()` must address it
+  by the DNS name that does not exist until it is Ready. The first run sat
+  forever with the init Job logging "waiting for mongod to answer" and the
+  pod at 0/1, each waiting on the other. Adding the flag fixed it
+  immediately. Worth knowing for any StatefulSet whose readiness depends on
+  cluster formation.
+- **A StatefulSet and a headless Service, not a Deployment and a ClusterIP.**
+  A replica set member must be reachable at the same stable hostname it
+  advertises about itself. A Deployment gives pods random names and a
+  ClusterIP load-balances across them, so an advertised address would not
+  reliably resolve back to the member that published it. The member is
+  registered as
+  `ledgerlock-mongo-0.ledgerlock-mongo.ledgerlock.svc.cluster.local:27017`,
+  verified in the init Job's output.
+- **No `directConnection` needed here, unlike compose.** Because the replica
+  set is initiated with a hostname that genuinely resolves inside the
+  cluster, ordinary replica-set discovery works, so the URI uses
+  `?replicaSet=rs0`. That is better than the compose arrangement: the driver
+  will follow a primary election rather than being pinned to one node.
+- **`kind load docker-image mongo:7.0` cannot work from Docker Desktop's
+  containerd image store.** It fails with `content digest ... not found`
+  because the locally cached image is a multi-platform manifest list and the
+  other platforms' layers are not present. The script therefore tries the
+  direct load, falls back to a single-platform `docker save` archive, and
+  finally lets the kubelet pull, with a 420s wait to cover a cold pull. The
+  first attempt at this timed out at 240s while the kubelet was still
+  pulling, which looked like a hang rather than a slow download.
+- **metrics-server has to be installed, and then waited for.** kind ships
+  without it, so the HPA would report `<unknown>` targets and could not
+  scale — an HPA that cannot read metrics is a manifest, not an autoscaler.
+  It also needs `--kubelet-insecure-tls` on kind, because kind's kubelet
+  serving certificates are not signed by the cluster CA. Separately, metrics
+  take 60-90 seconds after a pod starts before the HPA can compute a
+  utilisation figure: measured `<unknown>` immediately after the rollout and
+  `cpu: 3%/70%` about 90 seconds later. The script now waits for
+  `ScalingActive=True` and fails if it never arrives, rather than printing
+  `<unknown>` and calling it verified.
+- **No CPU limit on the API container, deliberately.** Under write-conflict
+  retries the service is briefly CPU-hungry in bursts. A CPU limit would
+  cause CFS throttling, which shows up as latency on exactly the requests
+  that are already slow from contention. Memory is still capped, because
+  memory exhaustion cannot be absorbed by the scheduler the same way. CPU
+  *requests* are set because the HPA computes utilisation against them.
+- **Liveness and readiness differ on purpose, in both workloads.** The API's
+  liveness probe hits `/health`, which makes no database call, so a MongoDB
+  outage does not cause Kubernetes to restart every healthy API pod and
+  escalate a partial outage into a total one. Readiness hits
+  `/health/ready`, which requires a transaction-capable primary, so a pod
+  that cannot honour the atomicity guarantee is removed from the Service's
+  endpoints instead of being sent traffic. Mongo's probes make the same
+  split for the same reason, and its liveness probe deliberately does *not*
+  require replica set membership, or an uninitiated node would be restarted
+  forever and could never be initiated.
+- **Scaling out does not fix single-account contention, and the HPA manifest
+  says so.** Phase 6 measured 22.88x callback amplification on one hot
+  account. That cost is a function of how many clients want the same account,
+  not of how many pods serve them; more pods would simply let more requests
+  queue for the same document. Recorded in the manifest so it is not mistaken
+  for a remedy.
+- **The JWT secret is never in a file in the repository.**
+  `k8s/secret.example.yaml` is a template with an empty value and an
+  explanation, and `verify_k8s.sh` creates the Secret imperatively from a
+  freshly generated key. A committed placeholder is how an example signing
+  key reaches production. The template also notes that a Kubernetes Secret is
+  only base64-encoded at rest unless etcd encryption is configured, so
+  anything beyond a local demonstration wants a real secret manager.
+- **Files added beyond ARCHITECTURE.md's four k8s manifests.**
+  `namespace.yaml`, `secret.example.yaml`, `mongo-statefulset.yaml` and
+  `mongo-init-job.yaml`. The four named files cannot run without a database
+  and a namespace to run in, and TASK.md asks for the manifests to be tested
+  against a local cluster, which is impossible without them. No named file
+  was renamed or dropped.
+
 ## Known Issues
 
 - **Extreme single-account contention produces very long tail latencies, and
@@ -1020,5 +1122,37 @@ replayed key was rejected, across both runs, without exception.
 
 Full suite at this commit: **198 passed**.
 
+### Phase 7 — Kubernetes verification against kind
+Command: `./scripts/verify_k8s.sh` (full cold run from a deleted cluster)
+Run on 2026-09-22T17:51:51Z UTC. kind v0.33.0, node image
+`kindest/node:v1.37.0`, kubectl v1.36.1, Darwin 25.6.0 arm64.
+Raw output: `tests/concurrency/results/phase7-kubernetes-20260922T175151Z.txt`
+
+Deployed: MongoDB 7.0 StatefulSet as single-node replica set `rs0`, API
+Deployment with 2 replicas behind a ClusterIP Service, HPA, metrics-server.
+
+| Check | Result |
+|---|---|
+| Replica set initiated with a resolvable member address | `set=rs0`, `member=ledgerlock-mongo-0.ledgerlock-mongo.ledgerlock.svc.cluster.local:27017 state=PRIMARY` |
+| API replicas Ready | **2 of 2** |
+| Pods in the Service's endpoints (readiness-gated) | **2** |
+| End-to-end assertions through the Service | **33 passed, 0 failed** |
+| HPA metrics | `cpu: 18%/70%`, `memory: 26%/80%` |
+| HPA `ScalingActive` | **True** — "able to successfully calculate a replica count from cpu resource utilization" |
+| HPA `currentReplicas` | 2 (at `minReplicas`) |
+
+This is the strongest concurrency evidence in the project, because the
+assertions ran against **two separate API pods sharing one MongoDB**, reached
+through the Service so requests were spread across both. Earlier phases
+covered one event loop (Phase 4) and one container with many client processes
+(Phase 5); this covers many processes across many pods.
+
+| Concurrency assertion, across 2 pods | Result |
+|---|---|
+| 30 concurrent debits of 5000 against a balance of 74000 | **14 x 201, 16 x 422**, final balance exactly **4000**, never negative |
+| 10 concurrent submissions of one idempotency key | **1 x 201, 9 x 409**, applied exactly once |
+| Reconciliation immediately after | `net_signed_minor` **0**, `healthy` **true**, 34 entries / 17 transactions |
+| PUT/PATCH/DELETE on ledger data | all **405** |
+
 ### Later phases
-- Kubernetes manifests: not written yet (Phase 7)
+- CI pipeline and security hardening: not done yet (Phase 8)

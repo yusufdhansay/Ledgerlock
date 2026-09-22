@@ -1,0 +1,9 @@
+# Everything Ledgerlock owns lives in one namespace, so a teardown is a
+# single delete and nothing leaks into `default`.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ledgerlock
+  labels:
+    app.kubernetes.io/name: ledgerlock
+    app.kubernetes.io/part-of: ledgerlock

@@ -1,0 +1,42 @@
+# Non-secret configuration for the API.
+#
+# Only values that are safe to read are here. The JWT signing key is a
+# Secret (see secret.example.yaml) and is never committed, not even as a
+# base64 placeholder that someone might mistake for a usable value.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ledgerlock-config
+  namespace: ledgerlock
+  labels:
+    app.kubernetes.io/name: ledgerlock
+    app.kubernetes.io/component: api
+data:
+  # The StatefulSet pod's stable DNS name, via the headless Service. Unlike
+  # the docker-compose setup, `directConnection` is NOT needed here: the
+  # replica set is initiated with this exact hostname, so the address it
+  # advertises is genuinely resolvable inside the cluster and ordinary
+  # replica-set discovery works. Declaring `replicaSet=rs0` means the driver
+  # will follow a primary election rather than pinning to one node.
+  MONGODB_URI: "mongodb://ledgerlock-mongo-0.ledgerlock-mongo.ledgerlock.svc.cluster.local:27017/?replicaSet=rs0"
+  MONGODB_DB_NAME: "ledgerlock"
+
+  SUPPORTED_CURRENCIES: "USD,EUR,GBP,INR"
+
+  APP_ENV: "kubernetes"
+  LOG_LEVEL: "INFO"
+
+  # Production cost factor. Kept explicit so nobody has to wonder whether
+  # the test suite's value of 4 leaked into a deployment.
+  BCRYPT_ROUNDS: "12"
+
+  ACCESS_TOKEN_EXPIRE_MINUTES: "30"
+  JWT_ALGORITHM: "HS256"
+
+  # In-process rate limits. Note the honest caveat, also in MEMORY.md: these
+  # counters live in each pod's memory, so with N replicas the effective
+  # global limit is roughly N times these numbers. Making it exact would
+  # need a shared backend such as Redis.
+  RATE_LIMIT_AUTH: "10/minute"
+  RATE_LIMIT_TRANSACTIONS: "100/minute"
+  RATE_LIMIT_DEFAULT: "200/minute"
