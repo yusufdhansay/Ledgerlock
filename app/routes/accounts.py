@@ -20,7 +20,13 @@ from app.models.account import (
     BalanceResponse,
 )
 from app.models.common import ObjectIdStr, PageMeta
-from app.services import account_service, balance_service
+from app.models.transaction import (
+    FundingCreateRequest,
+    TransactionKind,
+    TransactionPublic,
+)
+from app.routes.transactions import require_idempotency_key
+from app.services import account_service, balance_service, ledger_service
 
 logger = get_logger(__name__)
 
@@ -148,3 +154,66 @@ async def read_balance(
     document = await account_service.get_owned_account_or_raise(account_id, user)
     balance = await balance_service.compute_balance(document["_id"])
     return balance.to_response(document["_id"], document["currency"])
+
+
+@router.post(
+    "/{account_id}/funding",
+    response_model=TransactionPublic,
+    status_code=status.HTTP_201_CREATED,
+    summary="Bring external value into an account",
+    responses={
+        400: {"description": "IDEMPOTENCY_KEY_REQUIRED"},
+        401: {"description": "UNAUTHENTICATED"},
+        404: {"description": "ACCOUNT_NOT_FOUND"},
+        409: {"description": "DUPLICATE_SUBMISSION / ACCOUNT_NOT_ACTIVE"},
+        422: {"description": "MALFORMED_REQUEST / CURRENCY_MISMATCH"},
+    },
+)
+async def fund_account(
+    account_id: ObjectIdStr,
+    payload: FundingCreateRequest,
+    idempotency_key: str = Depends(require_idempotency_key),
+    user: AuthenticatedUser = Depends(get_current_user),
+) -> TransactionPublic:
+    """Credit this account, debiting the ledger's SYSTEM boundary account.
+
+    This is how value enters the ledger. Double-entry bookkeeping makes the
+    need explicit: if every transaction nets to zero and every account
+    starts at zero, no account can hold a positive balance unless some
+    account is allowed to go negative. The SYSTEM boundary account is that
+    account, and its negative balance is a meaningful figure, namely the
+    total value held across all user accounts in that currency.
+
+    Because the SYSTEM account is the other side of this entry, the
+    reconciliation invariant (every ledger entry in the system nets to
+    zero) stays exactly true through funding, just as it does through a
+    transfer.
+
+    **This is not a production deposit flow.** In a real system the same
+    ledger write would be driven by a settlement webhook from a payment
+    provider, after money had actually moved. PRD.md puts real payment
+    rails out of scope, so this endpoint is the seam where that integration
+    would attach. It requires an `Idempotency-Key` like any other
+    transaction, and it goes through exactly the same atomic
+    `ledger_service` path.
+    """
+    destination = await account_service.get_owned_account_or_raise(account_id, user)
+
+    system_account = await account_service.get_system_account(payload.currency)
+    if system_account is None:
+        raise UnsupportedCurrencyError(
+            f"No ledger boundary account exists for {payload.currency!r}.",
+            context={"currency": payload.currency},
+        )
+
+    result = await ledger_service.create_transfer(
+        idempotency_key=idempotency_key,
+        source_account_id=system_account["_id"],
+        destination_account_id=destination["_id"],
+        amount_minor=payload.amount_minor,
+        currency=payload.currency,
+        description=payload.description,
+        kind=TransactionKind.FUNDING,
+        submitted_by=user.id,
+    )
+    return TransactionPublic.from_document(result.transaction_document)

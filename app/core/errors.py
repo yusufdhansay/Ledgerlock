@@ -56,6 +56,8 @@ class ErrorCode(StrEnum):
     INSUFFICIENT_FUNDS = "INSUFFICIENT_FUNDS"
     DUPLICATE_SUBMISSION = "DUPLICATE_SUBMISSION"
     IDEMPOTENCY_KEY_REQUIRED = "IDEMPOTENCY_KEY_REQUIRED"
+    MALFORMED_IDEMPOTENCY_KEY = "MALFORMED_IDEMPOTENCY_KEY"
+    TRANSACTION_NOT_FOUND = "TRANSACTION_NOT_FOUND"
     CURRENCY_MISMATCH = "CURRENCY_MISMATCH"
     SAME_ACCOUNT_TRANSFER = "SAME_ACCOUNT_TRANSFER"
     LEDGER_IMMUTABLE = "LEDGER_IMMUTABLE"
@@ -183,6 +185,33 @@ class IdempotencyKeyRequiredError(LedgerlockError):
     status_code = status.HTTP_400_BAD_REQUEST
     code = ErrorCode.IDEMPOTENCY_KEY_REQUIRED
     message = "An Idempotency-Key header is required to create a transaction."
+
+
+class MalformedIdempotencyKeyError(LedgerlockError):
+    """The header was present but not a usable key.
+
+    Distinguished from IDEMPOTENCY_KEY_REQUIRED because "you forgot the
+    header" and "your key is the wrong shape" need different client fixes.
+    """
+
+    status_code = status.HTTP_422_UNPROCESSABLE_CONTENT
+    code = ErrorCode.MALFORMED_IDEMPOTENCY_KEY
+    message = (
+        "Idempotency-Key must be 8-128 characters using only letters, "
+        "digits, and the characters _ . : -"
+    )
+
+
+class TransactionNotFoundError(LedgerlockError):
+    """No such transaction, or the caller was not party to it.
+
+    Returned in both cases on purpose, so the route cannot be used to
+    enumerate other people's transaction ids.
+    """
+
+    status_code = status.HTTP_404_NOT_FOUND
+    code = ErrorCode.TRANSACTION_NOT_FOUND
+    message = "Transaction not found."
 
 
 class CurrencyMismatchError(LedgerlockError):

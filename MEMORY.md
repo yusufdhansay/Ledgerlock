@@ -4,7 +4,7 @@ This file is the persistent context across sessions. Read it first,
 every time, before doing anything else.
 
 ## Current Phase
-Phase 3: Transaction creation, the atomic core — not started
+Phase 4: Concurrency guarantees — not started
 
 ## Completed Phases
 
@@ -72,9 +72,29 @@ Phase 3: Transaction creation, the atomic core — not started
 - Startup now provisions one SYSTEM boundary account per supported
   currency.
 
+### Phase 3 — Atomic transaction creation (2026-09-22)
+- `app/services/ledger_service.py`: the only module that writes to
+  `transactions` or `ledger_entries`. `create_transfer()` wraps everything
+  in one `session.with_transaction(...)`: idempotency pre-check, load and
+  validate both accounts, take the serialisation write on the source,
+  compute the balance inside the same transaction, check sufficiency,
+  insert the transaction document, insert both ledger entries.
+- **The important part is the serialisation write.** See the long
+  docstring at the top of that module and the Phase 3 assumptions below. A
+  plain MongoDB transaction around read-check-write does *not* prevent
+  overdraft, and this was verified experimentally rather than assumed.
+- `app/routes/transactions.py`: `POST /transactions`,
+  `GET /transactions/{id}`, and the `require_idempotency_key` dependency.
+- `POST /accounts/{id}/funding` added to the accounts router: how value
+  enters the ledger, debiting the SYSTEM boundary account.
+- New error codes: `MALFORMED_IDEMPOTENCY_KEY`, `TRANSACTION_NOT_FOUND`.
+
 ## In Progress
-Nothing in progress. Phase 2 closed; Phase 3 (atomic transaction
-creation in `ledger_service.py`) is next.
+Nothing in progress. Phase 3 closed; Phase 4 (concurrency guarantees) is
+next. The two throwaway probes written during Phase 3 to validate the
+design are to be rebuilt as permanent Phase 4 tests: the 20-concurrent-
+debit overdraft test, and the control test showing the naive
+implementation overdraws.
 
 ## Assumptions
 
@@ -283,6 +303,85 @@ creation in `ledger_service.py`) is next.
   detect, so there is a test asserting that a directly-inserted debit shows
   up as a negative balance.
 
+### Phase 3 assumptions
+
+- **A MongoDB transaction around read-check-write does NOT prevent
+  overdraft. This is the central finding of the whole project, and it was
+  measured, not assumed.** The naive implementation is: open a
+  transaction, aggregate the source account's entries for its balance,
+  check the balance covers the amount, insert the two entries, commit.
+  MongoDB gives snapshot isolation and WiredTiger detects conflicts
+  between transactions that write *the same document* — but the
+  sufficiency check is a read, and the writes are inserts of brand-new
+  entry documents, so two concurrent transfers out of one account touch no
+  document in common. Both snapshots predate either commit, both checks
+  pass, there is no conflict to detect, and both commit.
+  **Measured, 20 concurrent debits of 1000 against a balance of 10000:
+  all 20 succeeded, final balance −10000.** Wrapping it in
+  `with_transaction` is not enough. SQL would offer `SELECT ... FOR
+  UPDATE`; MongoDB has no equivalent, which is exactly why PRD.md chose
+  it — the guarantee has to be constructed.
+- **The fix: a deliberate serialisation write.** Before reading the
+  balance, the transaction increments `debit_serialisation_counter` on the
+  *source account document*. That gives concurrent transfers out of the
+  same account a document to conflict on. WiredTiger aborts one with a
+  WriteConflict, which carries MongoDB's `TransientTransactionError`
+  label, which makes `with_transaction` re-run the whole callback from the
+  top; the retry re-reads the balance including the winner's committed
+  entries and either succeeds against the reduced balance or is correctly
+  rejected. **Measured, same scenario with the serialisation write:
+  exactly 10 of 20 succeeded, final balance exactly 0.**
+- **The counter is not a cached balance.** It counts debit attempts, it is
+  never read to answer a balance query, and nothing breaks if it is wrong.
+  RULES.md forbids a stored balance and this is not one. There are two
+  tests asserting the distinction, so that the field cannot later be
+  mistaken for one or quietly repurposed, and so that anyone deleting the
+  `$inc` as a pointless write gets a failing test pointing at the
+  explanation.
+- **The lock is taken only for USER sources.** Its sole job is to
+  serialise the overdraft check, and SYSTEM boundary accounts have no
+  overdraft check. If funding took the lock, every funding request for a
+  currency would contend on one document and serialise the whole system,
+  which would also have distorted the Phase 6 load test. Tested: the
+  SYSTEM account never acquires the field.
+- **Only the source is locked, never the destination, and there is a real
+  consequence.** Locking the debited account is sufficient, because a
+  credit cannot push an account below zero. The consequence, stated
+  plainly because it is a genuine behaviour: an in-flight debit will not
+  observe a credit that commits after its snapshot was taken, so a
+  transfer can be rejected as INSUFFICIENT_FUNDS even though a payment
+  arriving at the same moment would have covered it. That is a
+  conservative failure — it never permits an overdraft, and the client
+  retries. For a ledger, a spurious rejection is the right way to be
+  wrong.
+- **A rejected transfer does not consume its idempotency key.** Since the
+  whole transaction rolls back, the key was never recorded, so a client
+  can fix the amount and retry with the same key. Tested. The alternative
+  (burning the key on failure) would wrongly reject the corrected retry.
+- **Idempotency needs both the pre-check and the unique index.** The read
+  at step 1 handles the common case cheaply (a client retrying seconds
+  later) and gives a clean 409. It cannot carry the guarantee alone,
+  because two simultaneous submissions both read "not seen" before either
+  inserts. The `DuplicateKeyError` from `uq_idempotency_key` closes that
+  window and aborts the loser's whole transaction, entries included. The
+  error context records which of the two detected it (`pre_check` vs
+  `unique_index`) so the Phase 4 test can show the index doing the work.
+- **`attempts` is returned from the service.** `LedgerWriteResult.attempts`
+  reports how many times the transaction callback ran, so contention is a
+  measured number in Phase 6 rather than a guess.
+- **Self-transfer is rejected before opening a transaction.** It would
+  write a debit and a credit on the same account for the same amount,
+  netting to zero, while still consuming an idempotency key.
+- **Source ownership is checked in the route, not the service.** It is an
+  authorisation question about the caller rather than a bookkeeping
+  invariant. It also blocks spending directly from the SYSTEM boundary
+  account, which has no owner; tested.
+- **`GET /transactions/{id}` added.** Not named in TASK.md Phase 3, but a
+  client that received `409 DUPLICATE_SUBMISSION`, or lost the response to
+  its original request, otherwise has no way to find out what happened.
+  Visible to the owner of either account involved; anyone else gets 404
+  rather than 403, so it cannot be used to enumerate transaction ids.
+
 ## Known Issues
 
 - **Rate limiting is in-process.** `slowapi` keeps its counters in the
@@ -368,8 +467,30 @@ Database-level rejections that passed:
 - `{"$ne": null}` and `$where` submitted as an account id are rejected at
   the edge as MALFORMED_REQUEST, never reaching a query document
 
+### Phase 3 — Atomic transaction creation test suite
+Command: `.venv/bin/python -m pytest -q` (full suite)
+Run on 2026-09-22, Python 3.12.9, against `mongo:7.0` replica set `rs0`.
+Result: **112 passed in 14.98s** (4 + 35 + 32 + 41). `ruff` and `black`
+clean.
+
+Also run during Phase 3, as throwaway probes, to validate the design
+before building Phase 4 on it. Both were deleted after the run; permanent
+versions are to be written in Phase 4. Numbers below are from the actual
+probe output:
+
+| Implementation | Concurrent debits | Succeeded | Final balance |
+|---|---|---|---|
+| Naive: `with_transaction` around read-check-write, no shared write | 20 x 1000 against 10000 | **20** | **−10000** (overdrawn) |
+| Ledgerlock: serialisation write on the source before the balance read | 20 x 1000 against 10000 | **10** | **0** |
+
+The first row is the measurement that justifies the whole design. It is
+not a hypothetical: a correct, committed MongoDB multi-document
+transaction permits the overdraft, because the read and the writes share
+no document for WiredTiger to detect a conflict on.
+
 ### Later phases
-- Overdraft test: not run yet (Phase 4)
+- Overdraft test: probe run during Phase 3 (above); the permanent test is
+  Phase 4
 - Idempotency test: not run yet (Phase 4)
 - Reconciliation: not run yet (Phase 4, re-run after Phase 6 load test)
 - Load test: not run yet (Phase 6)
