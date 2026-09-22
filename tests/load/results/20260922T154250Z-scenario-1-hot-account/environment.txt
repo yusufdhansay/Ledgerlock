@@ -1,0 +1,30 @@
+Ledgerlock load test run
+Started:      2026-09-22T15:43:08Z UTC
+Locust:       users=50 spawn-rate=10 run-time=60s
+Target:       http://localhost:8000
+Readiness:    {"status":"ready","replica_set":"rs0"}
+
+Host:         Darwin 25.6.0 x86_64
+CPU cores:    8
+Memory:       8 GiB
+Docker:       Docker version 29.7.2, build a7dcaa6
+Locust ver:   locust 2.46.6 from /Users/yusufamin/Ledgerlock/.venv/lib/python3.12/site-packages/locust (Python 3.12.9)
+Python:       Python 3.12.9
+MongoDB:      7.0.43
+Replica set:  rs0 (single node)
+API image:    ledgerlock-api:local
+API workers:  1 uvicorn worker, 1 container
+
+IMPORTANT CAVEATS for reading these numbers:
+  * Load generator and service run on the SAME machine, so they
+    compete for CPU. These figures are a self-consistent baseline for
+    comparing code changes, not a capacity statement about the
+    service on dedicated hardware.
+  * One uvicorn worker, one container, one MongoDB node. Nothing here
+    is tuned for throughput.
+  * Locust runs single-process so the shared hot account is coherent
+    across all virtual users. A single generator process may itself
+    be a limiting factor.
+  * bcrypt runs at cost 12. Registration happens in on_start and is
+    reported under separate 'setup:' request names so it does not
+    distort transaction latency.

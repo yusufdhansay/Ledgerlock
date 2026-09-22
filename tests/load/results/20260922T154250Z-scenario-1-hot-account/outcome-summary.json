@@ -1,0 +1,22 @@
+{
+  "outcomes": {
+    "balance read: 200": 534,
+    "contended transfer: 201": 633,
+    "overdraft attempt: 422 INSUFFICIENT_FUNDS": 164,
+    "replayed key: 409 DUPLICATE_SUBMISSION": 148,
+    "uncontended transfer: 201": 807
+  },
+  "total_requests_counted": 2286,
+  "unexpected_outcome_count": 0,
+  "unexpected_outcomes": [],
+  "configuration": {
+    "hot_account_count": 1,
+    "hot_account_funding_minor": 50000000000,
+    "hot_transfer_amount_minor": 10,
+    "private_account_funding_minor": 10000000000,
+    "private_transfer_amount_minor": 25,
+    "thin_account_funding_minor": 100,
+    "thin_overdraft_attempt_minor": 100000,
+    "currency": "USD"
+  }
+}

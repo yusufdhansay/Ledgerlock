@@ -4,7 +4,7 @@ This file is the persistent context across sessions. Read it first,
 every time, before doing anything else.
 
 ## Current Phase
-Phase 6: Load testing — not started
+Phase 7: Kubernetes manifests — not started
 
 ## Completed Phases
 
@@ -130,10 +130,28 @@ Phase 6: Load testing — not started
 - Raw verification output:
   `tests/concurrency/results/phase5-compose-e2e-20260922T152634Z.txt`
 
+### Phase 6 — Load test with captured baseline numbers (2026-09-22)
+- `tests/load/locustfile.py`: mixed workload. Uncontended transfers (each
+  user's own accounts), contended transfers against a shared pool of hot
+  source accounts, balance reads, a task that deliberately over-debits a
+  thin account, and a task that replays a committed idempotency key. Every
+  request is judged against the outcomes expected *for that task*, so a
+  `422 INSUFFICIENT_FUNDS` counts as correct behaviour rather than as a
+  failure, while a `201` on the over-debit task is reported as a failure
+  because it would mean the guarantee had broken.
+- `scripts/run_load_test.sh`: brings up a clean stack, records the
+  environment, reconciles before, runs Locust headless, reconciles after,
+  extracts the retry distribution from the API's own logs, and writes a
+  verdict that fails the run on any correctness violation.
+- **Fixed a real bug that this load test found, in
+  `app/services/reconciliation.py`** — see assumptions below.
+- Two scenarios captured, both passing:
+  `tests/load/results/20260922T154105Z-scenario-5-hot-accounts/`
+  `tests/load/results/20260922T154250Z-scenario-1-hot-account/`
+
 ## In Progress
-Nothing in progress. Phase 5 closed; Phase 6 (Locust load test with
-captured throughput and latency, then reconciliation immediately after) is
-next.
+Nothing in progress. Phase 6 closed; Phase 7 (Kubernetes manifests, tested
+against `kind`) is next.
 
 ## Assumptions
 
@@ -571,7 +589,99 @@ next.
   bcrypt and pymongo, and that is a real risk to take on for a number that
   does not affect anything this project is demonstrating.
 
+### Phase 6 assumptions and findings
+
+- **The load test found a real bug, and it was in the reconciliation
+  checker.** The first run reported
+  `entry count 3086 is not twice the transaction count 1545` and failed.
+  The ledger was fine. `reconcile()` was running several aggregations plus a
+  `count_documents` as independent reads, so each observed the database at a
+  slightly different instant; under concurrent writes the entry aggregation
+  ran, two more transactions committed, and the transaction count then
+  included them. The checker was not internally consistent.
+
+  This mattered more than a cosmetic wrong number: a correctness checker
+  that raises false alarms under load is worse than no checker, because it
+  trains you to ignore it, and it would have been indistinguishable from a
+  genuine half-written pair. Fixed by running every read inside one session
+  with `readConcern: "snapshot"`, making the whole check a read-only
+  transaction used purely for its isolation. Regression test:
+  `test_reconciliation_is_self_consistent_while_writes_are_committing`,
+  which reconciles 12 times while four writers commit and requires every
+  report to satisfy `total_entries == total_transactions * 2`. Nice
+  symmetry: the project is about read-then-write races, and the first tool
+  written to detect them had one.
+- **Business rejections are not failures, and the report has to say so.**
+  Locust counts any non-2xx as a failure. Reporting `422
+  INSUFFICIENT_FUNDS` that way would turn a perfectly correct run into an
+  alarming report and would bury genuine failures among the noise. Each task
+  declares which outcomes are expected for it; expected rejections are
+  recorded as successes in Locust's statistics and counted separately in an
+  outcome breakdown. Conversely, a `201` on the over-debit task or the
+  replay task is reported as a failure, because either would mean a
+  guarantee had broken. This is what RULES.md's requirement for
+  distinguishable error codes is actually for.
+- **Two scenarios, because one number would have been misleading.** The
+  contended task's source pool size is configurable
+  (`LOAD_HOT_ACCOUNT_COUNT`). With 1 hot account every virtual user debits
+  the same document, which is the pathological worst case and not
+  representative of anything real. With 5 it is the realistic version of the
+  same problem. Reporting only the first would understate the system;
+  reporting only the second would hide the worst case. Both are recorded.
+- **Contention is per-account and provably does not spread.** The single
+  most useful number in the whole run: uncontended transfer latency was
+  p50 200ms / p95 290ms with 5 hot accounts and p50 170ms / p95 270ms with
+  1 hot account — essentially unchanged, while the contended task's p95 went
+  from 2500ms to 11000ms in the same runs. Accounts nobody else is touching
+  do not pay for the hot account's contention. That is a direct consequence
+  of the serialisation write being on the source account document rather
+  than on anything global.
+- **Setup traffic is measured separately.** Registration is deliberately
+  slow (bcrypt at cost 12, measured at p50 490ms in the container) and runs
+  in `on_start`, reported under `setup:` request names so it cannot drag the
+  transaction latency figures down with it.
+- **The load generator shares a machine with the service.** Both run on the
+  same laptop, competing for CPU, with one uvicorn worker, one container and
+  one MongoDB node, none of it tuned. These are a self-consistent baseline
+  for comparing code changes, not a capacity statement about the service on
+  real hardware. Recorded in each run's `environment.txt` so the numbers are
+  never quoted without it.
+- **Locust runs single-process on purpose.** The shared hot account pool is
+  module state, which would not be shared across `--processes` workers; each
+  worker would provision its own pool and the contention being measured
+  would quietly disappear. A single generator process may itself be a
+  limiting factor on the throughput figures, which is noted rather than
+  worked around.
+- **Phase 8 must not silently invalidate these numbers.** Rate limiting
+  lands in Phase 8, and the default `RATE_LIMIT_TRANSACTIONS=100/minute`
+  would throttle this workload to a fraction of what it achieved here. Any
+  re-run must either raise the limits for the load profile or exempt it, and
+  must say which it did.
+
 ## Known Issues
+
+- **Extreme single-account contention produces very long tail latencies, and
+  nothing currently bounds them.** Measured in Phase 6 Scenario B: with 50
+  concurrent clients all debiting one account, the contended endpoint reached
+  p99 16000ms and a maximum of 33173ms, with one transaction needing 463
+  callback attempts before committing. No request failed and no guarantee was
+  violated — correctness is unaffected — but a 33-second request is not
+  acceptable behaviour to ship.
+
+  The cause is that `with_transaction` retries a write conflict until its own
+  ~120 second deadline, with no fairness between contenders, so under heavy
+  contention some transactions starve while others get through. The obvious
+  fix is a bounded retry budget in `ledger_service`: after N attempts or T
+  milliseconds, stop and return `409 WRITE_CONFLICT` so the client can retry
+  deliberately instead of holding a connection open for half a minute. The
+  error code and its handling already exist for exactly this case; what is
+  missing is the budget that would trigger it.
+
+  Not implemented, because it is a change to the Phase 3 core and belongs in
+  its own piece of work rather than being slipped in while writing a load
+  test. Recorded here with the measurements that justify it. Note that the
+  realistic scenario is far milder (p99 4200ms, max attempts 121), so this is
+  the worst case rather than the normal case.
 
 - **Rate limiting is in-process.** `slowapi` keeps its counters in the
   API process's own memory. Running more than one replica (which the
@@ -834,6 +944,81 @@ Image hygiene, verified by inspecting the built image: process runs as
 `uid=1001(ledgerlock)`, `/app` contains only `app/`, and the image contains
 no `.env`, no `tests/`, and no `.git`.
 
+### Phase 6 — Load test
+Command: `LOAD_HOT_ACCOUNT_COUNT=<n> ./scripts/run_load_test.sh 50 10 60s`
+Run on 2026-09-22, 50 virtual users, spawn rate 10/s, 60 seconds, against
+the docker-compose stack (1 uvicorn worker, 1 container, MongoDB 7.0.43
+single-node replica set). Locust 2.46.6, single process.
+Host: Darwin 25.6.0 arm64, load generator on the same machine as the
+service. See each run's `environment.txt` for the full caveats; these are a
+baseline for comparing changes, not a capacity claim.
+
+**Scenario A — 5 shared hot source accounts (realistic contention)**
+`tests/load/results/20260922T154105Z-scenario-5-hot-accounts/`
+
+| Request | n | failures | p50 ms | p95 ms | p99 ms | req/s |
+|---|---|---|---|---|---|---|
+| POST /transactions [uncontended] | 2721 | **0** | **200** | **290** | 370 | 46.0 |
+| POST /transactions [contended, 5 hot accounts] | 2181 | **0** | 550 | 2500 | 4200 | 36.8 |
+| POST /transactions [overdraft attempt, must reject] | 563 | **0** | 190 | 420 | 610 | 9.5 |
+| POST /transactions [replayed key, must reject] | 538 | **0** | 100 | 160 | 250 | 9.1 |
+| GET /accounts/{id}/balance | 1726 | **0** | 67 | 110 | 150 | 29.1 |
+| **Aggregated** | **7929** | **0** | **190** | **1400** | 2900 | **133.9** |
+
+**Scenario B — 1 shared hot source account (pathological worst case)**
+`tests/load/results/20260922T154250Z-scenario-1-hot-account/`
+
+| Request | n | failures | p50 ms | p95 ms | p99 ms | req/s |
+|---|---|---|---|---|---|---|
+| POST /transactions [uncontended] | 804 | **0** | **170** | **270** | 380 | 13.6 |
+| POST /transactions [contended, 1 hot account] | 629 | **0** | 2700 | 11000 | 16000 | 10.6 |
+| POST /transactions [overdraft attempt, must reject] | 162 | **0** | 150 | 270 | 480 | 2.7 |
+| POST /transactions [replayed key, must reject] | 145 | **0** | 87 | 160 | 290 | 2.4 |
+| GET /accounts/{id}/balance | 534 | **0** | 58 | 99 | 160 | 9.0 |
+| **Aggregated** | **2474** | **0** | **160** | **6500** | 12000 | **41.7** |
+
+Read those two tables together. Concentrating all contention on one account
+instead of five costs the contended path roughly 4x its p95 and cuts overall
+throughput to about a third, **while leaving uncontended transfer latency
+essentially unchanged (p95 290ms vs 270ms)**. Contention is per-account and
+does not spread to accounts nobody else is touching.
+
+**Retry cost, measured from `ledger_service`'s own `attempts` field**
+
+| | 5 hot accounts | 1 hot account |
+|---|---|---|
+| committed transactions | 5030 | 1512 |
+| total transaction callback runs | 22699 | 34593 |
+| amplification | **4.51x** | **22.88x** |
+| committed on the first attempt | 3173 (63.1%) | 886 (58.6%) |
+| needed at least one retry | 1857 (36.9%) | 626 (41.4%) |
+| median attempts | 1 | 1 |
+| max attempts | 121 | **463** |
+
+The 22.88x figure independently corroborates the ~21x measured in Phase 4's
+30-request contention test, from a completely different harness.
+
+**Reconciliation immediately after each run — the number that matters**
+
+| | 5 hot accounts | 1 hot account |
+|---|---|---|
+| `net_signed_minor` | **0** | **0** |
+| `per_currency_net_minor` | `{USD: 0}` | `{USD: 0}` |
+| total entries | 10050 | 3010 |
+| total transactions | 5025 | 1505 |
+| `total_entries == total_transactions * 2` | yes | yes |
+| entries without a transaction | 0 | 0 |
+| unbalanced transaction groups | 0 | 0 |
+| negative USER accounts | **0** | **0** |
+| `healthy` | **true** | **true** |
+
+Outcome breakdown, Scenario A: 2721 uncontended transfers committed, 2181
+contended transfers committed, 1726 balance reads, 563 over-debits rejected
+with INSUFFICIENT_FUNDS, 538 replays rejected with DUPLICATE_SUBMISSION,
+**0 unexpected outcomes**. Every over-debit attempt was rejected and every
+replayed key was rejected, across both runs, without exception.
+
+Full suite at this commit: **198 passed**.
+
 ### Later phases
-- Load test: not run yet (Phase 6); reconciliation to be re-run immediately
-  afterwards
+- Kubernetes manifests: not written yet (Phase 7)

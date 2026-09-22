@@ -1,0 +1,435 @@
+[2026-09-22 21:13:11,762] Yusufs-MacBook-Air/INFO/locust.main: Starting Locust 2.46.6
+[2026-09-22 21:13:11,769] Yusufs-MacBook-Air/INFO/locust.main: Run time limit set to 60 seconds
+Type     Name                                                                          # reqs      # fails |    Avg     Min     Max    Med |   req/s  failures/s
+--------|----------------------------------------------------------------------------|-------|-------------|-------|-------|-------|-------|--------|-----------
+--------|----------------------------------------------------------------------------|-------|-------------|-------|-------|-------|-------|--------|-----------
+         Aggregated                                                                         0     0(0.00%) |      0       0       0      0 |    0.00        0.00
+
+[2026-09-22 21:13:12,100] Yusufs-MacBook-Air/INFO/locust.runners: Ramping to 50 users at a rate of 10.00 per second
+Type     Name                                                                          # reqs      # fails |    Avg     Min     Max    Med |   req/s  failures/s
+--------|----------------------------------------------------------------------------|-------|-------------|-------|-------|-------|-------|--------|-----------
+GET      GET /accounts/{id}/balance                                                        41     0(0.00%) |     20      11      69     17 |    0.00        0.00
+POST     POST /transactions [contended - shared account]                                   35     0(0.00%) |    127      37     610     80 |    0.00        0.00
+POST     POST /transactions [overdraft attempt - must reject]                               8     0(0.00%) |     48      36     108     40 |    0.00        0.00
+POST     POST /transactions [replayed key - must reject]                                    8     0(0.00%) |     36      18      83     32 |    0.00        0.00
+POST     POST /transactions [uncontended]                                                  52     0(0.00%) |     54      31     150     43 |    0.00        0.00
+POST     setup: POST /accounts                                                             40     0(0.00%) |     33      11      90     30 |    0.00        0.00
+POST     setup: POST /accounts/{id}/funding                                                16     0(0.00%) |     63      31     131     44 |    0.00        0.00
+POST     setup: POST /auth/register                                                        20     0(0.00%) |    429     336     552    430 |    0.00        0.00
+--------|----------------------------------------------------------------------------|-------|-------------|-------|-------|-------|-------|--------|-----------
+         Aggregated                                                                       220     0(0.00%) |     89      11     610     41 |    0.00        0.00
+
+Type     Name                                                                          # reqs      # fails |    Avg     Min     Max    Med |   req/s  failures/s
+--------|----------------------------------------------------------------------------|-------|-------------|-------|-------|-------|-------|--------|-----------
+GET      GET /accounts/{id}/balance                                                        79     0(0.00%) |     44      11     278     35 |   10.50        0.00
+POST     POST /transactions [contended - shared account]                                   54     0(0.00%) |    342      37    2113    170 |    8.50        0.00
+POST     POST /transactions [overdraft attempt - must reject]                              16     0(0.00%) |     98      36     245    100 |    2.50        0.00
+POST     POST /transactions [replayed key - must reject]                                   14     0(0.00%) |     92      18     353     69 |    2.00        0.00
+POST     POST /transactions [uncontended]                                                  90     0(0.00%) |    119      31     384     88 |   16.00        0.00
+POST     setup: POST /accounts                                                             77     0(0.00%) |     62      11     265     53 |   10.00        0.00
+POST     setup: POST /accounts/{id}/funding                                                30     0(0.00%) |    128      31     345    110 |    5.00        0.00
+POST     setup: POST /auth/register                                                        40     0(0.00%) |    518     336     932    470 |    5.00        0.00
+--------|----------------------------------------------------------------------------|-------|-------------|-------|-------|-------|-------|--------|-----------
+         Aggregated                                                                       400     0(0.00%) |    162      11    2113     72 |   59.50        0.00
+
+[2026-09-22 21:13:16,107] Yusufs-MacBook-Air/INFO/locust.runners: All users spawned: {"LedgerUser": 50} (50 total users)
+Type     Name                                                                          # reqs      # fails |    Avg     Min     Max    Med |   req/s  failures/s
+--------|----------------------------------------------------------------------------|-------|-------------|-------|-------|-------|-------|--------|-----------
+GET      GET /accounts/{id}/balance                                                       109     0(0.00%) |     55      11     278     52 |   16.00        0.00
+POST     POST /transactions [contended - shared account]                                   72     0(0.00%) |    604      37    3597    250 |   12.00        0.00
+POST     POST /transactions [overdraft attempt - must reject]                              30     0(0.00%) |    163      36     610    140 |    3.50        0.00
+POST     POST /transactions [replayed key - must reject]                                   26     0(0.00%) |    107      18     353     89 |    2.75        0.00
+POST     POST /transactions [uncontended]                                                 144     0(0.00%) |    153      31     483    150 |   18.25        0.00
+POST     setup: POST /accounts                                                            100     0(0.00%) |     67      11     265     62 |   11.75        0.00
+POST     setup: POST /accounts/{id}/funding                                                50     0(0.00%) |    150      31     345    170 |    5.00        0.00
+POST     setup: POST /auth/register                                                        50     0(0.00%) |    525     336     932    470 |    6.75        0.00
+--------|----------------------------------------------------------------------------|-------|-------------|-------|-------|-------|-------|--------|-----------
+         Aggregated                                                                       581     0(0.00%) |    206      11    3597    100 |   76.00        0.00
+
+Type     Name                                                                          # reqs      # fails |    Avg     Min     Max    Med |   req/s  failures/s
+--------|----------------------------------------------------------------------------|-------|-------------|-------|-------|-------|-------|--------|-----------
+GET      GET /accounts/{id}/balance                                                       128     0(0.00%) |     56      11     278     54 |   15.50        0.00
+POST     POST /transactions [contended - shared account]                                   93     0(0.00%) |    925      37    4820    520 |   10.67        0.00
+POST     POST /transactions [overdraft attempt - must reject]                              36     0(0.00%) |    168      36     610    140 |    3.67        0.00
+POST     POST /transactions [replayed key - must reject]                                   30     0(0.00%) |    105      18     353     91 |    3.50        0.00
+POST     POST /transactions [uncontended]                                                 174     0(0.00%) |    159      31     483    160 |   19.50        0.00
+POST     setup: POST /accounts                                                            100     0(0.00%) |     67      11     265     62 |   16.67        0.00
+POST     setup: POST /accounts/{id}/funding                                                50     0(0.00%) |    150      31     345    170 |    7.50        0.00
+POST     setup: POST /auth/register                                                        50     0(0.00%) |    525     336     932    470 |    8.33        0.00
+--------|----------------------------------------------------------------------------|-------|-------------|-------|-------|-------|-------|--------|-----------
+         Aggregated                                                                       661     0(0.00%) |    258      11    4820    110 |   85.33        0.00
+
+Type     Name                                                                          # reqs      # fails |    Avg     Min     Max    Med |   req/s  failures/s
+--------|----------------------------------------------------------------------------|-------|-------------|-------|-------|-------|-------|--------|-----------
+GET      GET /accounts/{id}/balance                                                       149     0(0.00%) |     57      11     278     57 |   15.75        0.00
+POST     POST /transactions [contended - shared account]                                  116     0(0.00%) |   1291      37    6176    760 |   10.50        0.00
+POST     POST /transactions [overdraft attempt - must reject]                              45     0(0.00%) |    165      36     610    140 |    4.50        0.00
+POST     POST /transactions [replayed key - must reject]                                   38     0(0.00%) |    103      18     353     91 |    3.50        0.00
+POST     POST /transactions [uncontended]                                                 203     0(0.00%) |    161      31     483    170 |   20.88        0.00
+POST     setup: POST /accounts                                                            100     0(0.00%) |     67      11     265     62 |   12.50        0.00
+POST     setup: POST /accounts/{id}/funding                                                50     0(0.00%) |    150      31     345    170 |    6.25        0.00
+POST     setup: POST /auth/register                                                        50     0(0.00%) |    525     336     932    470 |    6.25        0.00
+--------|----------------------------------------------------------------------------|-------|-------------|-------|-------|-------|-------|--------|-----------
+         Aggregated                                                                       751     0(0.00%) |    323      11    6176    120 |   80.12        0.00
+
+Type     Name                                                                          # reqs      # fails |    Avg     Min     Max    Med |   req/s  failures/s
+--------|----------------------------------------------------------------------------|-------|-------------|-------|-------|-------|-------|--------|-----------
+GET      GET /accounts/{id}/balance                                                       171     0(0.00%) |     58      11     278     56 |   13.70        0.00
+POST     POST /transactions [contended - shared account]                                  138     0(0.00%) |   1703      37    8870    920 |   10.70        0.00
+POST     POST /transactions [overdraft attempt - must reject]                              50     0(0.00%) |    164      36     610    140 |    4.00        0.00
+POST     POST /transactions [replayed key - must reject]                                   49     0(0.00%) |    102      18     353     89 |    3.60        0.00
+POST     POST /transactions [uncontended]                                                 230     0(0.00%) |    164      31     483    170 |   19.30        0.00
+POST     setup: POST /accounts                                                            100     0(0.00%) |     67      11     265     62 |   10.00        0.00
+POST     setup: POST /accounts/{id}/funding                                                50     0(0.00%) |    150      31     345    170 |    5.00        0.00
+POST     setup: POST /auth/register                                                        50     0(0.00%) |    525     336     932    470 |    5.00        0.00
+--------|----------------------------------------------------------------------------|-------|-------------|-------|-------|-------|-------|--------|-----------
+         Aggregated                                                                       838     0(0.00%) |    401      11    8870    130 |   71.30        0.00
+
+Type     Name                                                                          # reqs      # fails |    Avg     Min     Max    Med |   req/s  failures/s
+--------|----------------------------------------------------------------------------|-------|-------------|-------|-------|-------|-------|--------|-----------
+GET      GET /accounts/{id}/balance                                                       181     0(0.00%) |     59      11     278     57 |   13.80        0.00
+POST     POST /transactions [contended - shared account]                                  153     0(0.00%) |   1897      37    8932   1100 |   11.30        0.00
+POST     POST /transactions [overdraft attempt - must reject]                              56     0(0.00%) |    178      36     610    150 |    4.10        0.00
+POST     POST /transactions [replayed key - must reject]                                   53     0(0.00%) |    102      18     353     89 |    3.70        0.00
+POST     POST /transactions [uncontended]                                                 256     0(0.00%) |    172      31     483    170 |   18.70        0.00
+POST     setup: POST /accounts                                                            100     0(0.00%) |     67      11     265     62 |    8.00        0.00
+POST     setup: POST /accounts/{id}/funding                                                50     0(0.00%) |    150      31     345    170 |    4.00        0.00
+POST     setup: POST /auth/register                                                        50     0(0.00%) |    525     336     932    470 |    4.00        0.00
+--------|----------------------------------------------------------------------------|-------|-------------|-------|-------|-------|-------|--------|-----------
+         Aggregated                                                                       899     0(0.00%) |    446      11    8932    140 |   67.60        0.00
+
+Type     Name                                                                          # reqs      # fails |    Avg     Min     Max    Med |   req/s  failures/s
+--------|----------------------------------------------------------------------------|-------|-------------|-------|-------|-------|-------|--------|-----------
+GET      GET /accounts/{id}/balance                                                       184     0(0.00%) |     60      11     278     58 |   11.20        0.00
+POST     POST /transactions [contended - shared account]                                  175     0(0.00%) |   2164      37   10496   1300 |    9.80        0.00
+POST     POST /transactions [overdraft attempt - must reject]                              58     0(0.00%) |    176      36     610    150 |    3.90        0.00
+POST     POST /transactions [replayed key - must reject]                                   55     0(0.00%) |    101      18     353     88 |    4.00        0.00
+POST     POST /transactions [uncontended]                                                 281     0(0.00%) |    172      31     483    170 |   17.20        0.00
+POST     setup: POST /accounts                                                            100     0(0.00%) |     67      11     265     62 |    5.30        0.00
+POST     setup: POST /accounts/{id}/funding                                                50     0(0.00%) |    150      31     345    170 |    3.00        0.00
+POST     setup: POST /auth/register                                                        50     0(0.00%) |    525     336     932    470 |    2.30        0.00
+--------|----------------------------------------------------------------------------|-------|-------------|-------|-------|-------|-------|--------|-----------
+         Aggregated                                                                       953     0(0.00%) |    519      11   10496    150 |   56.70        0.00
+
+Type     Name                                                                          # reqs      # fails |    Avg     Min     Max    Med |   req/s  failures/s
+--------|----------------------------------------------------------------------------|-------|-------------|-------|-------|-------|-------|--------|-----------
+GET      GET /accounts/{id}/balance                                                       201     0(0.00%) |     59      11     278     58 |    9.10        0.00
+POST     POST /transactions [contended - shared account]                                  197     0(0.00%) |   2240      37   10496   1400 |   10.20        0.00
+POST     POST /transactions [overdraft attempt - must reject]                              63     0(0.00%) |    174      36     610    140 |    3.40        0.00
+POST     POST /transactions [replayed key - must reject]                                   58     0(0.00%) |    100      18     353     86 |    3.40        0.00
+POST     POST /transactions [uncontended]                                                 307     0(0.00%) |    172      31     483    170 |   15.60        0.00
+POST     setup: POST /accounts                                                            100     0(0.00%) |     67      11     265     62 |    0.00        0.00
+POST     setup: POST /accounts/{id}/funding                                                50     0(0.00%) |    150      31     345    170 |    0.50        0.00
+POST     setup: POST /auth/register                                                        50     0(0.00%) |    525     336     932    470 |    0.00        0.00
+--------|----------------------------------------------------------------------------|-------|-------------|-------|-------|-------|-------|--------|-----------
+         Aggregated                                                                      1026     0(0.00%) |    549      11   10496    150 |   42.20        0.00
+
+Type     Name                                                                          # reqs      # fails |    Avg     Min     Max    Med |   req/s  failures/s
+--------|----------------------------------------------------------------------------|-------|-------------|-------|-------|-------|-------|--------|-----------
+GET      GET /accounts/{id}/balance                                                       220     0(0.00%) |     59      11     278     58 |    6.60        0.00
+POST     POST /transactions [contended - shared account]                                  220     0(0.00%) |   2562      37   15522   1700 |   10.40        0.00
+POST     POST /transactions [overdraft attempt - must reject]                              69     0(0.00%) |    173      36     610    150 |    2.50        0.00
+POST     POST /transactions [replayed key - must reject]                                   63     0(0.00%) |     99      18     353     86 |    2.90        0.00
+POST     POST /transactions [uncontended]                                                 337     0(0.00%) |    172      31     483    170 |   12.70        0.00
+POST     setup: POST /accounts                                                            100     0(0.00%) |     67      11     265     62 |    0.00        0.00
+POST     setup: POST /accounts/{id}/funding                                                50     0(0.00%) |    150      31     345    170 |    0.00        0.00
+POST     setup: POST /auth/register                                                        50     0(0.00%) |    525     336     932    470 |    0.00        0.00
+--------|----------------------------------------------------------------------------|-------|-------------|-------|-------|-------|-------|--------|-----------
+         Aggregated                                                                      1109     0(0.00%) |    625      11   15522    150 |   35.10        0.00
+
+Type     Name                                                                          # reqs      # fails |    Avg     Min     Max    Med |   req/s  failures/s
+--------|----------------------------------------------------------------------------|-------|-------------|-------|-------|-------|-------|--------|-----------
+GET      GET /accounts/{id}/balance                                                       235     0(0.00%) |     59      11     278     57 |    8.00        0.00
+POST     POST /transactions [contended - shared account]                                  240     0(0.00%) |   2708      37   15783   1800 |   10.30        0.00
+POST     POST /transactions [overdraft attempt - must reject]                              74     0(0.00%) |    172      36     610    150 |    2.70        0.00
+POST     POST /transactions [replayed key - must reject]                                   67     0(0.00%) |     98      18     353     86 |    2.50        0.00
+POST     POST /transactions [uncontended]                                                 353     0(0.00%) |    172      31     483    170 |   13.80        0.00
+POST     setup: POST /accounts                                                            100     0(0.00%) |     67      11     265     62 |    0.00        0.00
+POST     setup: POST /accounts/{id}/funding                                                50     0(0.00%) |    150      31     345    170 |    0.00        0.00
+POST     setup: POST /auth/register                                                        50     0(0.00%) |    525     336     932    470 |    0.00        0.00
+--------|----------------------------------------------------------------------------|-------|-------------|-------|-------|-------|-------|--------|-----------
+         Aggregated                                                                      1169     0(0.00%) |    671      11   15783    150 |   37.30        0.00
+
+Type     Name                                                                          # reqs      # fails |    Avg     Min     Max    Med |   req/s  failures/s
+--------|----------------------------------------------------------------------------|-------|-------------|-------|-------|-------|-------|--------|-----------
+GET      GET /accounts/{id}/balance                                                       240     0(0.00%) |     60      11     278     57 |    7.10        0.00
+POST     POST /transactions [contended - shared account]                                  257     0(0.00%) |   2799      37   15783   1800 |   10.30        0.00
+POST     POST /transactions [overdraft attempt - must reject]                              76     0(0.00%) |    173      36     610    150 |    2.70        0.00
+POST     POST /transactions [replayed key - must reject]                                   69     0(0.00%) |     98      18     353     86 |    2.40        0.00
+POST     POST /transactions [uncontended]                                                 366     0(0.00%) |    173      31     483    170 |   12.70        0.00
+POST     setup: POST /accounts                                                            100     0(0.00%) |     67      11     265     62 |    0.00        0.00
+POST     setup: POST /accounts/{id}/funding                                                50     0(0.00%) |    150      31     345    170 |    0.00        0.00
+POST     setup: POST /auth/register                                                        50     0(0.00%) |    525     336     932    470 |    0.00        0.00
+--------|----------------------------------------------------------------------------|-------|-------------|-------|-------|-------|-------|--------|-----------
+         Aggregated                                                                      1208     0(0.00%) |    710      11   15783    160 |   35.20        0.00
+
+Type     Name                                                                          # reqs      # fails |    Avg     Min     Max    Med |   req/s  failures/s
+--------|----------------------------------------------------------------------------|-------|-------------|-------|-------|-------|-------|--------|-----------
+GET      GET /accounts/{id}/balance                                                       259     0(0.00%) |     60      11     278     58 |    6.30        0.00
+POST     POST /transactions [contended - shared account]                                  275     0(0.00%) |   2893      37   15783   1900 |   10.50        0.00
+POST     POST /transactions [overdraft attempt - must reject]                              78     0(0.00%) |    173      36     610    150 |    2.20        0.00
+POST     POST /transactions [replayed key - must reject]                                   76     0(0.00%) |     98      18     353     86 |    1.80        0.00
+POST     POST /transactions [uncontended]                                                 386     0(0.00%) |    175      31     483    170 |   11.80        0.00
+POST     setup: POST /accounts                                                            100     0(0.00%) |     67      11     265     62 |    0.00        0.00
+POST     setup: POST /accounts/{id}/funding                                                50     0(0.00%) |    150      31     345    170 |    0.00        0.00
+POST     setup: POST /auth/register                                                        50     0(0.00%) |    525     336     932    470 |    0.00        0.00
+--------|----------------------------------------------------------------------------|-------|-------------|-------|-------|-------|-------|--------|-----------
+         Aggregated                                                                      1274     0(0.00%) |    738      11   15783    160 |   32.60        0.00
+
+Type     Name                                                                          # reqs      # fails |    Avg     Min     Max    Med |   req/s  failures/s
+--------|----------------------------------------------------------------------------|-------|-------------|-------|-------|-------|-------|--------|-----------
+GET      GET /accounts/{id}/balance                                                       273     0(0.00%) |     60      11     278     58 |    6.80        0.00
+POST     POST /transactions [contended - shared account]                                  293     0(0.00%) |   3050      37   16217   2100 |   10.20        0.00
+POST     POST /transactions [overdraft attempt - must reject]                              87     0(0.00%) |    175      36     610    150 |    2.20        0.00
+POST     POST /transactions [replayed key - must reject]                                   84     0(0.00%) |     98      18     353     89 |    2.00        0.00
+POST     POST /transactions [uncontended]                                                 415     0(0.00%) |    176      31     483    180 |   10.30        0.00
+POST     setup: POST /accounts                                                            100     0(0.00%) |     67      11     265     62 |    0.00        0.00
+POST     setup: POST /accounts/{id}/funding                                                50     0(0.00%) |    150      31     345    170 |    0.00        0.00
+POST     setup: POST /auth/register                                                        50     0(0.00%) |    525     336     932    470 |    0.00        0.00
+--------|----------------------------------------------------------------------------|-------|-------------|-------|-------|-------|-------|--------|-----------
+         Aggregated                                                                      1352     0(0.00%) |    775      11   16217    160 |   31.50        0.00
+
+Type     Name                                                                          # reqs      # fails |    Avg     Min     Max    Med |   req/s  failures/s
+--------|----------------------------------------------------------------------------|-------|-------------|-------|-------|-------|-------|--------|-----------
+GET      GET /accounts/{id}/balance                                                       287     0(0.00%) |     60      11     278     58 |    7.30        0.00
+POST     POST /transactions [contended - shared account]                                  312     0(0.00%) |   3288      37   22334   2100 |    9.70        0.00
+POST     POST /transactions [overdraft attempt - must reject]                              91     0(0.00%) |    174      36     610    150 |    2.40        0.00
+POST     POST /transactions [replayed key - must reject]                                   87     0(0.00%) |     98      18     353     88 |    2.50        0.00
+POST     POST /transactions [uncontended]                                                 441     0(0.00%) |    176      31     483    180 |   10.70        0.00
+POST     setup: POST /accounts                                                            100     0(0.00%) |     67      11     265     62 |    0.00        0.00
+POST     setup: POST /accounts/{id}/funding                                                50     0(0.00%) |    150      31     345    170 |    0.00        0.00
+POST     setup: POST /auth/register                                                        50     0(0.00%) |    525     336     932    470 |    0.00        0.00
+--------|----------------------------------------------------------------------------|-------|-------------|-------|-------|-------|-------|--------|-----------
+         Aggregated                                                                      1418     0(0.00%) |    836      11   22334    160 |   32.60        0.00
+
+Type     Name                                                                          # reqs      # fails |    Avg     Min     Max    Med |   req/s  failures/s
+--------|----------------------------------------------------------------------------|-------|-------------|-------|-------|-------|-------|--------|-----------
+GET      GET /accounts/{id}/balance                                                       301     0(0.00%) |     60      11     278     58 |    6.10        0.00
+POST     POST /transactions [contended - shared account]                                  332     0(0.00%) |   3348      37   22334   2100 |    9.40        0.00
+POST     POST /transactions [overdraft attempt - must reject]                              97     0(0.00%) |    172      36     610    150 |    2.10        0.00
+POST     POST /transactions [replayed key - must reject]                                   92     0(0.00%) |     97      18     353     87 |    2.40        0.00
+POST     POST /transactions [uncontended]                                                 471     0(0.00%) |    176      31     483    170 |    9.90        0.00
+POST     setup: POST /accounts                                                            100     0(0.00%) |     67      11     265     62 |    0.00        0.00
+POST     setup: POST /accounts/{id}/funding                                                50     0(0.00%) |    150      31     345    170 |    0.00        0.00
+POST     setup: POST /auth/register                                                        50     0(0.00%) |    525     336     932    470 |    0.00        0.00
+--------|----------------------------------------------------------------------------|-------|-------------|-------|-------|-------|-------|--------|-----------
+         Aggregated                                                                      1493     0(0.00%) |    857      11   22334    160 |   29.90        0.00
+
+Type     Name                                                                          # reqs      # fails |    Avg     Min     Max    Med |   req/s  failures/s
+--------|----------------------------------------------------------------------------|-------|-------------|-------|-------|-------|-------|--------|-----------
+GET      GET /accounts/{id}/balance                                                       313     0(0.00%) |     61      11     278     58 |    6.60        0.00
+POST     POST /transactions [contended - shared account]                                  350     0(0.00%) |   3416      37   22334   2200 |    9.10        0.00
+POST     POST /transactions [overdraft attempt - must reject]                              99     0(0.00%) |    172      36     610    150 |    2.10        0.00
+POST     POST /transactions [replayed key - must reject]                                   95     0(0.00%) |     98      18     353     87 |    2.50        0.00
+POST     POST /transactions [uncontended]                                                 480     0(0.00%) |    177      31     483    180 |   11.30        0.00
+POST     setup: POST /accounts                                                            100     0(0.00%) |     67      11     265     62 |    0.00        0.00
+POST     setup: POST /accounts/{id}/funding                                                50     0(0.00%) |    150      31     345    170 |    0.00        0.00
+POST     setup: POST /auth/register                                                        50     0(0.00%) |    525     336     932    470 |    0.00        0.00
+--------|----------------------------------------------------------------------------|-------|-------------|-------|-------|-------|-------|--------|-----------
+         Aggregated                                                                      1537     0(0.00%) |    889      11   22334    160 |   31.60        0.00
+
+Type     Name                                                                          # reqs      # fails |    Avg     Min     Max    Med |   req/s  failures/s
+--------|----------------------------------------------------------------------------|-------|-------------|-------|-------|-------|-------|--------|-----------
+GET      GET /accounts/{id}/balance                                                       333     0(0.00%) |     61      11     278     58 |    7.20        0.00
+POST     POST /transactions [contended - shared account]                                  371     0(0.00%) |   3561      37   22334   2300 |    9.30        0.00
+POST     POST /transactions [overdraft attempt - must reject]                             103     0(0.00%) |    171      36     610    150 |    2.30        0.00
+POST     POST /transactions [replayed key - must reject]                                  101     0(0.00%) |     97      18     353     87 |    2.60        0.00
+POST     POST /transactions [uncontended]                                                 505     0(0.00%) |    177      31     483    170 |   11.30        0.00
+POST     setup: POST /accounts                                                            100     0(0.00%) |     67      11     265     62 |    0.00        0.00
+POST     setup: POST /accounts/{id}/funding                                                50     0(0.00%) |    150      31     345    170 |    0.00        0.00
+POST     setup: POST /auth/register                                                        50     0(0.00%) |    525     336     932    470 |    0.00        0.00
+--------|----------------------------------------------------------------------------|-------|-------------|-------|-------|-------|-------|--------|-----------
+         Aggregated                                                                      1613     0(0.00%) |    929      11   22334    160 |   32.70        0.00
+
+Type     Name                                                                          # reqs      # fails |    Avg     Min     Max    Med |   req/s  failures/s
+--------|----------------------------------------------------------------------------|-------|-------------|-------|-------|-------|-------|--------|-----------
+GET      GET /accounts/{id}/balance                                                       356     0(0.00%) |     61      11     278     58 |    6.90        0.00
+POST     POST /transactions [contended - shared account]                                  393     0(0.00%) |   3534      37   22334   2300 |    9.40        0.00
+POST     POST /transactions [overdraft attempt - must reject]                             106     0(0.00%) |    170      36     610    150 |    2.30        0.00
+POST     POST /transactions [replayed key - must reject]                                  106     0(0.00%) |     97      18     353     88 |    2.30        0.00
+POST     POST /transactions [uncontended]                                                 528     0(0.00%) |    177      31     483    170 |   11.70        0.00
+POST     setup: POST /accounts                                                            100     0(0.00%) |     67      11     265     62 |    0.00        0.00
+POST     setup: POST /accounts/{id}/funding                                                50     0(0.00%) |    150      31     345    170 |    0.00        0.00
+POST     setup: POST /auth/register                                                        50     0(0.00%) |    525     336     932    470 |    0.00        0.00
+--------|----------------------------------------------------------------------------|-------|-------------|-------|-------|-------|-------|--------|-----------
+         Aggregated                                                                      1689     0(0.00%) |    931      11   22334    160 |   32.60        0.00
+
+Type     Name                                                                          # reqs      # fails |    Avg     Min     Max    Med |   req/s  failures/s
+--------|----------------------------------------------------------------------------|-------|-------------|-------|-------|-------|-------|--------|-----------
+GET      GET /accounts/{id}/balance                                                       372     0(0.00%) |     61      11     278     58 |    8.30        0.00
+POST     POST /transactions [contended - shared account]                                  416     0(0.00%) |   3644      37   22334   2300 |   10.10        0.00
+POST     POST /transactions [overdraft attempt - must reject]                             110     0(0.00%) |    169      36     610    150 |    2.10        0.00
+POST     POST /transactions [replayed key - must reject]                                  111     0(0.00%) |     97      18     353     88 |    2.10        0.00
+POST     POST /transactions [uncontended]                                                 555     0(0.00%) |    177      31     483    170 |   12.00        0.00
+POST     setup: POST /accounts                                                            100     0(0.00%) |     67      11     265     62 |    0.00        0.00
+POST     setup: POST /accounts/{id}/funding                                                50     0(0.00%) |    150      31     345    170 |    0.00        0.00
+POST     setup: POST /auth/register                                                        50     0(0.00%) |    525     336     932    470 |    0.00        0.00
+--------|----------------------------------------------------------------------------|-------|-------------|-------|-------|-------|-------|--------|-----------
+         Aggregated                                                                      1764     0(0.00%) |    967      11   22334    160 |   34.60        0.00
+
+Type     Name                                                                          # reqs      # fails |    Avg     Min     Max    Med |   req/s  failures/s
+--------|----------------------------------------------------------------------------|-------|-------------|-------|-------|-------|-------|--------|-----------
+GET      GET /accounts/{id}/balance                                                       391     0(0.00%) |     60      11     278     58 |    8.50        0.00
+POST     POST /transactions [contended - shared account]                                  440     0(0.00%) |   3664      37   22334   2300 |   10.20        0.00
+POST     POST /transactions [overdraft attempt - must reject]                             116     0(0.00%) |    167      36     610    150 |    1.80        0.00
+POST     POST /transactions [replayed key - must reject]                                  116     0(0.00%) |     97      18     353     88 |    2.40        0.00
+POST     POST /transactions [uncontended]                                                 582     0(0.00%) |    176      31     483    170 |   11.30        0.00
+POST     setup: POST /accounts                                                            100     0(0.00%) |     67      11     265     62 |    0.00        0.00
+POST     setup: POST /accounts/{id}/funding                                                50     0(0.00%) |    150      31     345    170 |    0.00        0.00
+POST     setup: POST /auth/register                                                        50     0(0.00%) |    525     336     932    470 |    0.00        0.00
+--------|----------------------------------------------------------------------------|-------|-------------|-------|-------|-------|-------|--------|-----------
+         Aggregated                                                                      1845     0(0.00%) |    981      11   22334    160 |   34.20        0.00
+
+Type     Name                                                                          # reqs      # fails |    Avg     Min     Max    Med |   req/s  failures/s
+--------|----------------------------------------------------------------------------|-------|-------------|-------|-------|-------|-------|--------|-----------
+GET      GET /accounts/{id}/balance                                                       405     0(0.00%) |     61      11     278     58 |    8.60        0.00
+POST     POST /transactions [contended - shared account]                                  461     0(0.00%) |   3686      37   22334   2400 |   10.60        0.00
+POST     POST /transactions [overdraft attempt - must reject]                             120     0(0.00%) |    167      36     610    150 |    2.20        0.00
+POST     POST /transactions [replayed key - must reject]                                  118     0(0.00%) |     97      18     353     88 |    2.50        0.00
+POST     POST /transactions [uncontended]                                                 603     0(0.00%) |    177      31     483    170 |   11.10        0.00
+POST     setup: POST /accounts                                                            100     0(0.00%) |     67      11     265     62 |    0.00        0.00
+POST     setup: POST /accounts/{id}/funding                                                50     0(0.00%) |    150      31     345    170 |    0.00        0.00
+POST     setup: POST /auth/register                                                        50     0(0.00%) |    525     336     932    470 |    0.00        0.00
+--------|----------------------------------------------------------------------------|-------|-------------|-------|-------|-------|-------|--------|-----------
+         Aggregated                                                                      1907     0(0.00%) |    997      11   22334    160 |   35.00        0.00
+
+Type     Name                                                                          # reqs      # fails |    Avg     Min     Max    Med |   req/s  failures/s
+--------|----------------------------------------------------------------------------|-------|-------------|-------|-------|-------|-------|--------|-----------
+GET      GET /accounts/{id}/balance                                                       414     0(0.00%) |     61      11     278     58 |    9.00        0.00
+POST     POST /transactions [contended - shared account]                                  482     0(0.00%) |   3704      37   22334   2500 |   10.90        0.00
+POST     POST /transactions [overdraft attempt - must reject]                             123     0(0.00%) |    167      36     610    150 |    2.20        0.00
+POST     POST /transactions [replayed key - must reject]                                  123     0(0.00%) |     98      18     353     88 |    2.20        0.00
+POST     POST /transactions [uncontended]                                                 624     0(0.00%) |    177      31     483    170 |   11.90        0.00
+POST     setup: POST /accounts                                                            100     0(0.00%) |     67      11     265     62 |    0.00        0.00
+POST     setup: POST /accounts/{id}/funding                                                50     0(0.00%) |    150      31     345    170 |    0.00        0.00
+POST     setup: POST /auth/register                                                        50     0(0.00%) |    525     336     932    470 |    0.00        0.00
+--------|----------------------------------------------------------------------------|-------|-------------|-------|-------|-------|-------|--------|-----------
+         Aggregated                                                                      1966     0(0.00%) |   1014      11   22334    160 |   36.20        0.00
+
+Type     Name                                                                          # reqs      # fails |    Avg     Min     Max    Med |   req/s  failures/s
+--------|----------------------------------------------------------------------------|-------|-------------|-------|-------|-------|-------|--------|-----------
+GET      GET /accounts/{id}/balance                                                       434     0(0.00%) |     61      11     278     58 |    8.70        0.00
+POST     POST /transactions [contended - shared account]                                  505     0(0.00%) |   3725      37   22334   2600 |   11.10        0.00
+POST     POST /transactions [overdraft attempt - must reject]                             129     0(0.00%) |    166      36     610    150 |    2.00        0.00
+POST     POST /transactions [replayed key - must reject]                                  130     0(0.00%) |     97      18     353     88 |    2.30        0.00
+POST     POST /transactions [uncontended]                                                 653     0(0.00%) |    177      31     483    170 |   11.80        0.00
+POST     setup: POST /accounts                                                            100     0(0.00%) |     67      11     265     62 |    0.00        0.00
+POST     setup: POST /accounts/{id}/funding                                                50     0(0.00%) |    150      31     345    170 |    0.00        0.00
+POST     setup: POST /auth/register                                                        50     0(0.00%) |    525     336     932    470 |    0.00        0.00
+--------|----------------------------------------------------------------------------|-------|-------------|-------|-------|-------|-------|--------|-----------
+         Aggregated                                                                      2051     0(0.00%) |   1023      11   22334    160 |   35.90        0.00
+
+Type     Name                                                                          # reqs      # fails |    Avg     Min     Max    Med |   req/s  failures/s
+--------|----------------------------------------------------------------------------|-------|-------------|-------|-------|-------|-------|--------|-----------
+GET      GET /accounts/{id}/balance                                                       446     0(0.00%) |     61      11     278     58 |    7.80        0.00
+POST     POST /transactions [contended - shared account]                                  525     0(0.00%) |   3734      37   22334   2600 |   10.90        0.00
+POST     POST /transactions [overdraft attempt - must reject]                             134     0(0.00%) |    167      36     610    150 |    2.00        0.00
+POST     POST /transactions [replayed key - must reject]                                  132     0(0.00%) |     98      18     353     88 |    2.60        0.00
+POST     POST /transactions [uncontended]                                                 677     0(0.00%) |    179      31     483    170 |   12.40        0.00
+POST     setup: POST /accounts                                                            100     0(0.00%) |     67      11     265     62 |    0.00        0.00
+POST     setup: POST /accounts/{id}/funding                                                50     0(0.00%) |    150      31     345    170 |    0.00        0.00
+POST     setup: POST /auth/register                                                        50     0(0.00%) |    525     336     932    470 |    0.00        0.00
+--------|----------------------------------------------------------------------------|-------|-------------|-------|-------|-------|-------|--------|-----------
+         Aggregated                                                                      2114     0(0.00%) |   1033      11   22334    160 |   35.70        0.00
+
+Type     Name                                                                          # reqs      # fails |    Avg     Min     Max    Med |   req/s  failures/s
+--------|----------------------------------------------------------------------------|-------|-------------|-------|-------|-------|-------|--------|-----------
+GET      GET /accounts/{id}/balance                                                       456     0(0.00%) |     61      11     278     58 |    8.10        0.00
+POST     POST /transactions [contended - shared account]                                  549     0(0.00%) |   3734      37   22334   2600 |   10.80        0.00
+POST     POST /transactions [overdraft attempt - must reject]                             138     0(0.00%) |    166      36     610    150 |    2.70        0.00
+POST     POST /transactions [replayed key - must reject]                                  134     0(0.00%) |     98      18     353     88 |    2.20        0.00
+POST     POST /transactions [uncontended]                                                 694     0(0.00%) |    178      31     483    170 |   12.50        0.00
+POST     setup: POST /accounts                                                            100     0(0.00%) |     67      11     265     62 |    0.00        0.00
+POST     setup: POST /accounts/{id}/funding                                                50     0(0.00%) |    150      31     345    170 |    0.00        0.00
+POST     setup: POST /auth/register                                                        50     0(0.00%) |    525     336     932    470 |    0.00        0.00
+--------|----------------------------------------------------------------------------|-------|-------------|-------|-------|-------|-------|--------|-----------
+         Aggregated                                                                      2171     0(0.00%) |   1049      11   22334    160 |   36.30        0.00
+
+Type     Name                                                                          # reqs      # fails |    Avg     Min     Max    Med |   req/s  failures/s
+--------|----------------------------------------------------------------------------|-------|-------------|-------|-------|-------|-------|--------|-----------
+GET      GET /accounts/{id}/balance                                                       483     0(0.00%) |     61      11     278     58 |    6.60        0.00
+POST     POST /transactions [contended - shared account]                                  571     0(0.00%) |   3706      37   22334   2600 |   10.90        0.00
+POST     POST /transactions [overdraft attempt - must reject]                             147     0(0.00%) |    166      36     610    150 |    2.10        0.00
+POST     POST /transactions [replayed key - must reject]                                  139     0(0.00%) |     97      18     353     88 |    1.80        0.00
+POST     POST /transactions [uncontended]                                                 726     0(0.00%) |    178      31     483    170 |   11.40        0.00
+POST     setup: POST /accounts                                                            100     0(0.00%) |     67      11     265     62 |    0.00        0.00
+POST     setup: POST /accounts/{id}/funding                                                50     0(0.00%) |    150      31     345    170 |    0.00        0.00
+POST     setup: POST /auth/register                                                        50     0(0.00%) |    525     336     932    470 |    0.00        0.00
+--------|----------------------------------------------------------------------------|-------|-------------|-------|-------|-------|-------|--------|-----------
+         Aggregated                                                                      2266     0(0.00%) |   1039      11   22334    160 |   32.80        0.00
+
+Type     Name                                                                          # reqs      # fails |    Avg     Min     Max    Med |   req/s  failures/s
+--------|----------------------------------------------------------------------------|-------|-------------|-------|-------|-------|-------|--------|-----------
+GET      GET /accounts/{id}/balance                                                       504     0(0.00%) |     61      11     278     58 |    7.60        0.00
+POST     POST /transactions [contended - shared account]                                  591     0(0.00%) |   3697      37   22334   2700 |   11.00        0.00
+POST     POST /transactions [overdraft attempt - must reject]                             153     0(0.00%) |    165      36     610    150 |    2.50        0.00
+POST     POST /transactions [replayed key - must reject]                                  141     0(0.00%) |     97      18     353     88 |    2.10        0.00
+POST     POST /transactions [uncontended]                                                 760     0(0.00%) |    179      31     483    170 |   12.00        0.00
+POST     setup: POST /accounts                                                            100     0(0.00%) |     67      11     265     62 |    0.00        0.00
+POST     setup: POST /accounts/{id}/funding                                                50     0(0.00%) |    150      31     345    170 |    0.00        0.00
+POST     setup: POST /auth/register                                                        50     0(0.00%) |    525     336     932    470 |    0.00        0.00
+--------|----------------------------------------------------------------------------|-------|-------------|-------|-------|-------|-------|--------|-----------
+         Aggregated                                                                      2349     0(0.00%) |   1035      11   22334    160 |   35.20        0.00
+
+Type     Name                                                                          # reqs      # fails |    Avg     Min     Max    Med |   req/s  failures/s
+--------|----------------------------------------------------------------------------|-------|-------------|-------|-------|-------|-------|--------|-----------
+GET      GET /accounts/{id}/balance                                                       526     0(0.00%) |     61      11     278     58 |    8.70        0.00
+POST     POST /transactions [contended - shared account]                                  614     0(0.00%) |   3773      37   33172   2700 |   10.80        0.00
+POST     POST /transactions [overdraft attempt - must reject]                             161     0(0.00%) |    165      36     610    150 |    2.70        0.00
+POST     POST /transactions [replayed key - must reject]                                  144     0(0.00%) |     97      18     353     87 |    1.90        0.00
+POST     POST /transactions [uncontended]                                                 788     0(0.00%) |    179      31     483    170 |   13.40        0.00
+POST     setup: POST /accounts                                                            100     0(0.00%) |     67      11     265     62 |    0.00        0.00
+POST     setup: POST /accounts/{id}/funding                                                50     0(0.00%) |    150      31     345    170 |    0.00        0.00
+POST     setup: POST /auth/register                                                        50     0(0.00%) |    525     336     932    470 |    0.00        0.00
+--------|----------------------------------------------------------------------------|-------|-------------|-------|-------|-------|-------|--------|-----------
+         Aggregated                                                                      2433     0(0.00%) |   1056      11   33172    160 |   37.50        0.00
+
+[2026-09-22 21:14:11,517] Yusufs-MacBook-Air/INFO/locust.main: --run-time limit reached, shutting down
+[2026-09-22 21:14:11,638] Yusufs-MacBook-Air/INFO/locust.main: Shutting down (exit code 0)
+Type     Name                                                                          # reqs      # fails |    Avg     Min     Max    Med |   req/s  failures/s
+--------|----------------------------------------------------------------------------|-------|-------------|-------|-------|-------|-------|--------|-----------
+GET      GET /accounts/{id}/balance                                                       534     0(0.00%) |     61      11     278     58 |    8.93        0.00
+POST     POST /transactions [contended - shared account]                                  633     0(0.00%) |   3796      37   33172   2700 |   10.59        0.00
+POST     POST /transactions [overdraft attempt - must reject]                             164     0(0.00%) |    165      36     610    150 |    2.74        0.00
+POST     POST /transactions [replayed key - must reject]                                  148     0(0.00%) |     97      18     353     88 |    2.48        0.00
+POST     POST /transactions [uncontended]                                                 807     0(0.00%) |    179      31     483    170 |   13.50        0.00
+POST     setup: POST /accounts                                                            100     0(0.00%) |     67      11     265     62 |    1.67        0.00
+POST     setup: POST /accounts/{id}/funding                                                50     0(0.00%) |    150      31     345    170 |    0.84        0.00
+POST     setup: POST /auth/register                                                        50     0(0.00%) |    525     336     932    470 |    0.84        0.00
+--------|----------------------------------------------------------------------------|-------|-------------|-------|-------|-------|-------|--------|-----------
+         Aggregated                                                                      2486     0(0.00%) |   1071      11   33172    160 |   41.58        0.00
+
+Response time percentiles (approximated)
+Type     Name                                                                                  50%    66%    75%    80%    90%    95%    98%    99%  99.9% 99.99%   100% # reqs
+--------|--------------------------------------------------------------------------------|--------|------|------|------|------|------|------|------|------|------|------|------
+GET      GET /accounts/{id}/balance                                                             58     63     68     73     85     99    130    160    280    280    280    534
+POST     POST /transactions [contended - shared account]                                      2700   4200   5300   6400   8900  11000  14000  16000  33000  33000  33000    633
+POST     POST /transactions [overdraft attempt - must reject]                                  150    170    180    190    240    270    380    480    610    610    610    164
+POST     POST /transactions [replayed key - must reject]                                        88     95    110    110    130    160    180    290    350    350    350    148
+POST     POST /transactions [uncontended]                                                      170    190    200    210    250    280    330    380    480    480    480    807
+POST     setup: POST /accounts                                                                  62     82     91     97    110    130    210    270    270    270    270    100
+POST     setup: POST /accounts/{id}/funding                                                    170    190    210    220    250    270    350    350    350    350    350     50
+POST     setup: POST /auth/register                                                            470    560    590    620    740    910    930    930    930    930    930     50
+--------|--------------------------------------------------------------------------------|--------|------|------|------|------|------|------|------|------|------|------|------
+         Aggregated                                                                            160    210    360    780   3700   6500   9800  12000  22000  33000  33000   2486
+
+[setup] 1 shared hot source account(s), each funded with 50000000000 minor units
+[setup] thin source 6ab2a2101441e7a97262640b funded with 100 minor units (to be over-debited)
+[setup] replay key committed once: replay-00a9a9ff42-a9141eef-286e-4faf-98dd-973e25c93b7e
+
+======================================================================
+OUTCOME BREAKDOWN (business result of each request)
+======================================================================
+       534  balance read: 200
+       633  contended transfer: 201
+       164  overdraft attempt: 422 INSUFFICIENT_FUNDS
+       148  replayed key: 409 DUPLICATE_SUBMISSION
+       807  uncontended transfer: 201
+      2286  TOTAL
+
+  No unexpected outcomes. Every non-2xx response was a
+  documented business rejection (insufficient funds or
+  duplicate submission), not an error.
+======================================================================
+outcome summary written to /Users/yusufamin/Ledgerlock/tests/load/results/20260922T154250Z/outcome-summary.json
+locust exit code: 0

@@ -1,0 +1,14 @@
+Transaction retry cost (from ledger_service `attempts`):
+  committed transactions       = 1512
+  total callback runs          = 34593
+  amplification                = 22.88x
+  committed on the first try   = 886 (58.6%)
+  needed at least one retry    = 626 (41.4%)
+  median attempts              = 1
+  max attempts                 = 463
+  distribution:
+           1 attempts : 886
+         2-5 attempts : 75
+        6-20 attempts : 129
+      21-100 attempts : 326
+        >100 attempts : 96

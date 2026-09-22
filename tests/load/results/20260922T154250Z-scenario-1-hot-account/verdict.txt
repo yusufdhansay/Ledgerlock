@@ -1,0 +1,22 @@
+Reconciliation after load:
+  net_signed_minor              = 0
+  per_currency_net_minor        = {'USD': 0}
+  total_entries                 = 3010
+  total_transactions            = 1505
+  entries_without_transaction   = 0
+  unbalanced_transaction_groups = 0
+  negative_user_accounts        = 0
+  balanced                      = True
+  healthy                       = True
+
+Locust aggregated (all request types):
+  requests                = 2474
+  failures                = 0
+  requests/sec            = 41.7
+  median (p50) ms         = 160
+  p95 ms                  = 6500
+  p99 ms                  = 12000
+  mean ms                 = 1071.7
+  max ms                  = 33172.99729096703
+
+LOAD TEST PASSED: correctness survived the load.

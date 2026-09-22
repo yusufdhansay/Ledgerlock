@@ -256,6 +256,82 @@ async def test_the_system_account_balance_equals_total_user_holdings(
     assert report.healthy is True
 
 
+async def test_reconciliation_is_self_consistent_while_writes_are_committing(
+    client: AsyncClient, app_database: AsyncIOMotorDatabase
+) -> None:
+    """Regression test for a bug the Phase 6 load test found.
+
+    The check is several aggregations plus a count. Originally each ran as an
+    independent read, so under concurrent writes they observed the database
+    at slightly different instants and disagreed with one another: the entry
+    aggregation returned 3086 entries, two more transactions committed, and
+    the transaction count then returned 1545, so the report claimed
+    `total_entries != total_transactions * 2` while the ledger was in fact
+    perfectly sound.
+
+    A checker that raises false alarms under load is worse than no checker,
+    because it teaches you to ignore it. The fix is to run every read inside
+    one session with `readConcern: "snapshot"`.
+
+    This test reconciles repeatedly *while* transfers are committing and
+    requires every single report to be internally consistent. Before the fix
+    it fails; after it, the invariant holds throughout.
+    """
+    headers = await register_and_authenticate(client)
+    source_id = await open_account(client, headers, label="Writer source")
+    destination_id = await open_account(client, headers, label="Writer sink")
+    await fund(client, headers, source_id, 1_000_000)
+
+    stop = asyncio.Event()
+
+    async def keep_transferring() -> int:
+        committed = 0
+        while not stop.is_set():
+            response = await submit_transfer(
+                client, headers, source_id, destination_id, 10
+            )
+            if response.status_code == 201:
+                committed += 1
+        return committed
+
+    async def keep_reconciling() -> list[dict]:
+        reports = []
+        for _ in range(12):
+            report = await reconciliation_service.reconcile(app_database)
+            reports.append(report.model_dump())
+            await asyncio.sleep(0)
+        stop.set()
+        return reports
+
+    writers = [asyncio.create_task(keep_transferring()) for _ in range(4)]
+    reports = await keep_reconciling()
+    committed_counts = await asyncio.gather(*writers)
+
+    inconsistent = [
+        r
+        for r in reports
+        if r["total_entries"] != r["total_transactions"] * 2
+        or r["net_signed_minor"] != 0
+        or not r["healthy"]
+    ]
+
+    print(
+        f"\nSNAPSHOT TEST: {sum(committed_counts)} transfers committed during "
+        f"{len(reports)} reconciliation runs"
+    )
+    print(
+        "SNAPSHOT TEST: entries/transactions per report = "
+        + ", ".join(f"{r['total_entries']}/{r['total_transactions']}" for r in reports)
+    )
+    print(f"SNAPSHOT TEST: internally inconsistent reports = {len(inconsistent)}")
+
+    assert sum(committed_counts) > 0, "no writes happened, so nothing was tested"
+    assert inconsistent == [], (
+        "reconciliation produced an internally inconsistent report while "
+        f"writes were committing: {inconsistent[:2]}"
+    )
+
+
 # ---------------------------------------------------------------------
 # Is the check actually capable of failing?
 # ---------------------------------------------------------------------
