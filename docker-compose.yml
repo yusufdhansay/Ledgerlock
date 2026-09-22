@@ -1,0 +1,55 @@
+# Ledgerlock local orchestration.
+#
+# MongoDB runs as a SINGLE-NODE REPLICA SET, not standalone. This is not
+# cosmetic: MongoDB only supports multi-document ACID transactions on a
+# replica set (or sharded cluster). A standalone mongod rejects
+# `session.start_transaction()` outright, and the entire correctness
+# guarantee of this project (idempotency check + balance sufficiency
+# check + transaction insert + both ledger entry inserts, all atomic)
+# depends on those transactions existing.
+#
+# The replica set advertises itself as `localhost:27017` so that
+# host-side test runs work against the mapped port. Clients inside this
+# compose network reach it at `mongo:27017` with `directConnection=true`,
+# which skips replica-set topology discovery and therefore never tries
+# to follow the advertised `localhost` address.
+
+services:
+  mongo:
+    image: mongo:7.0
+    container_name: ledgerlock-mongo
+    command:
+      - "--replSet"
+      - "rs0"
+      - "--bind_ip_all"
+      - "--port"
+      - "27017"
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    healthcheck:
+      # Idempotent: initiates the replica set on first run, and from then
+      # on simply reports whether the node is a writable primary.
+      test:
+        - "CMD"
+        - "mongosh"
+        - "--quiet"
+        - "--eval"
+        - |
+          try {
+            rs.status();
+          } catch (err) {
+            rs.initiate({
+              _id: "rs0",
+              members: [{ _id: 0, host: "localhost:27017" }]
+            });
+          }
+          quit(db.hello().isWritablePrimary ? 0 : 1);
+      interval: 5s
+      timeout: 10s
+      start_period: 10s
+      retries: 30
+
+volumes:
+  mongo_data:

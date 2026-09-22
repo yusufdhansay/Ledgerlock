@@ -1,0 +1,41 @@
+# Environment / secrets
+.env
+.env.local
+*.pem
+*.key
+secrets/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.eggs/
+.venv/
+venv/
+env/
+
+# Test / tooling caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+coverage.xml
+htmlcov/
+
+# Database data
+data/
+mongo-data/
+*.wt
+
+# Editors / OS
+.DS_Store
+.idea/
+*.swp
+
+# Node (not used, but guarded per build spec)
+node_modules/

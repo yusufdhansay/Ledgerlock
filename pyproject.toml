@@ -1,0 +1,39 @@
+# Tooling configuration only. Ledgerlock is run as an application
+# (uvicorn app.main:app), not installed as a distributable package, so
+# there is deliberately no [project] build metadata here. Dependencies
+# live in requirements.txt / requirements-dev.txt with exact pins.
+
+[tool.black]
+line-length = 88
+target-version = ["py312"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py312"
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "F",   # pyflakes
+    "I",   # import sorting
+    "B",   # bugbear
+    "UP",  # pyupgrade
+    "ASYNC", # flake8-async: catches blocking calls in async functions
+    "S",   # bandit security checks
+]
+ignore = [
+    "E501", # line length is enforced by black
+    "B008", # FastAPI's Depends(...) in defaults is the framework idiom
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests are allowed asserts (S101) and hardcoded test passwords (S105/S106).
+"tests/**" = ["S101", "S105", "S106", "S311"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+testpaths = ["tests"]
+markers = [
+    "concurrency: tests that prove behaviour under concurrent load",
+]

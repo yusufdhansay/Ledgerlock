@@ -1,0 +1,19 @@
+# Ledgerlock development / test / tooling dependencies.
+# Installed on top of requirements.txt. Pinned exactly for reproducible
+# test and load-test runs.
+
+-r requirements.txt
+
+pytest==9.1.1
+pytest-asyncio==1.4.0
+httpx==0.28.1
+asgi-lifespan==2.1.0
+
+black==26.5.1
+ruff==0.16.8
+
+# Load testing (Phase 6)
+locust==2.46.6
+
+# Dependency vulnerability scanning (Phase 8)
+pip-audit==2.10.1

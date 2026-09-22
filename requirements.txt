@@ -1,0 +1,29 @@
+# Ledgerlock runtime dependencies.
+# Versions are pinned exactly (==) so that a build is reproducible and a
+# dependency cannot silently change under CI or under a load test run.
+# Resolved against Python 3.12.
+
+fastapi==0.141.1
+uvicorn[standard]==0.53.0
+
+# Async MongoDB driver. Motor is specified by ARCHITECTURE.md; see
+# MEMORY.md "Assumptions" for a note on PyMongo's newer native async API.
+motor==3.7.1
+pymongo==4.18.1
+
+pydantic==2.13.5
+pydantic-settings==2.15.0
+email-validator==2.3.0
+
+# Auth: PyJWT for token encode/decode, bcrypt directly for password
+# hashing (no passlib wrapper, which adds a layer that has historically
+# broken against new bcrypt majors).
+PyJWT==2.14.0
+bcrypt==5.0.0
+
+# In-process rate limiting. Known limitation documented in MEMORY.md:
+# counters are per-process and are not shared across replicas.
+slowapi==0.1.10
+
+# Structured JSON logging, so rejected transactions are machine-readable.
+python-json-logger==4.2.0
