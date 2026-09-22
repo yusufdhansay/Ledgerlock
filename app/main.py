@@ -19,7 +19,7 @@ from app.core import db
 from app.core.config import get_settings
 from app.core.errors import register_exception_handlers
 from app.core.logging_config import configure_logging, get_logger
-from app.routes import accounts, auth, transactions
+from app.routes import accounts, auth, reconciliation, transactions
 from app.services import account_service
 
 logger = get_logger(__name__)
@@ -91,6 +91,7 @@ def create_app() -> FastAPI:
     app.include_router(auth.router)
     app.include_router(accounts.router)
     app.include_router(transactions.router)
+    app.include_router(reconciliation.router)
 
     @app.get("/health", tags=["health"], summary="Liveness probe")
     async def health() -> dict[str, str]:

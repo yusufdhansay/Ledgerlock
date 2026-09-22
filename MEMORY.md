@@ -4,7 +4,7 @@ This file is the persistent context across sessions. Read it first,
 every time, before doing anything else.
 
 ## Current Phase
-Phase 4: Concurrency guarantees — not started
+Phase 5: Dockerize and compose — not started
 
 ## Completed Phases
 
@@ -89,12 +89,30 @@ Phase 4: Concurrency guarantees — not started
   enters the ledger, debiting the SYSTEM boundary account.
 - New error codes: `MALFORMED_IDEMPOTENCY_KEY`, `TRANSACTION_NOT_FOUND`.
 
+### Phase 4 — Concurrency guarantees (2026-09-22)
+- `app/services/reconciliation.py`: the system-wide integrity check. Net
+  signed sum, net per currency, entries with no transaction, transactions
+  whose entries are not exactly one debit and one credit summing to zero,
+  and USER accounts with a negative balance. Read-only; it never repairs
+  anything, because silently correcting a discrepancy destroys the
+  evidence of how it arose.
+- `app/routes/reconciliation.py`: `GET /reconciliation` (PRD.md asks for an
+  endpoint as well as a test, and the endpoint is what makes the invariant
+  checkable against a running deployment after the Phase 6 load test).
+- `ReconciliationReport` extended: added `healthy`, split `orphaned_entries`
+  into `entries_without_transaction` and `unbalanced_transaction_groups`,
+  added `negative_user_accounts`. **Assert on `healthy`, not `balanced`** —
+  `balanced` only covers sum-to-zero, and three of the four corruptions
+  tested net to zero while still being corrupt.
+- `tests/concurrency/`: 47 tests across overdraft, idempotency,
+  immutability and reconciliation, including two control tests that assert
+  the bug *does* happen when the relevant mechanism is removed.
+- Raw output captured to
+  `tests/concurrency/results/phase4-concurrency-20260922T151427Z.txt`.
+
 ## In Progress
-Nothing in progress. Phase 3 closed; Phase 4 (concurrency guarantees) is
-next. The two throwaway probes written during Phase 3 to validate the
-design are to be rebuilt as permanent Phase 4 tests: the 20-concurrent-
-debit overdraft test, and the control test showing the naive
-implementation overdraws.
+Nothing in progress. Phase 4 closed; Phase 5 (Dockerfile, compose wiring
+the API to MongoDB, end-to-end verification) is next.
 
 ## Assumptions
 
@@ -382,6 +400,101 @@ implementation overdraws.
   Visible to the owner of either account involved; anyone else gets 404
   rather than 403, so it cannot be used to enumerate transaction ids.
 
+### Phase 4 assumptions and findings
+
+- **Every guarantee has a paired control test.** A test asserting "no
+  overdraft happened" is worth very little on its own, because a harness
+  too weak to produce the race reports exactly the same result. So two
+  control tests assert that the bug *does* occur when the relevant
+  mechanism is removed:
+  `test_control_a_plain_transaction_without_serialisation_overdraws` and
+  `test_control_without_the_unique_index_duplicates_are_applied_twice`.
+  Both are permanent parts of the suite. If either stops reproducing its
+  bug, the corresponding guarantee tests have quietly stopped proving
+  anything and should not be trusted until investigated.
+- **Implicit collection creation inside a transaction silently serialises
+  concurrency, and it cost a debugging round.** The idempotency control
+  test initially reported that check-then-insert was safe (1 of 20
+  applied). The cause was that `ledger_entries` did not exist yet in the
+  scratch database, so the first insert created it implicitly *inside* the
+  transaction; that takes an exclusive lock, every other transaction got a
+  WriteConflict, was retried, and its retried pre-check then saw the
+  committed winner. Creating both collections explicitly before the
+  concurrent run changed the result to 19 of 20 applied. This is the same
+  sharp edge `app/core/db.py` already avoids for the real application by
+  creating every collection at startup — the incident is what confirms
+  that decision was worth making. Worth remembering generally: a
+  concurrency test that quietly passes may be measuring a lock you did not
+  know you had.
+- **Idempotency: the unique index does the work, but the error it produces
+  under real concurrency is a WriteConflict, not a DuplicateKeyError.** The
+  expectation was that concurrent duplicates would surface
+  `DuplicateKeyError` from `uq_idempotency_key`. Measured: 0 of 19
+  duplicates report `unique_index`; all 19 report `pre_check`. The reason
+  is that when a transaction inserts a key another *in-flight* transaction
+  has written but not yet committed, MongoDB raises WriteConflict, which
+  carries the TransientTransactionError label, so `with_transaction`
+  retries and the retry's pre-check sees the committed winner. The
+  `unique_index` branch is the narrow case where the winner commits in the
+  gap between a loser's pre-check and its insert. The index is still
+  load-bearing — the control test shows removing it lets 19 of 20
+  duplicates through — but the test asserts the observed distribution
+  honestly rather than a split that does not occur. Two earlier attempts to
+  force index catches (moving the test to funding, which has no
+  serialisation lock, then calling the service directly to remove HTTP
+  staggering) both still reported 0, which is what led to the correct
+  explanation.
+- **The serialisation counter is transactional, so it cannot evidence
+  retries.** An initial test asserted the counter would exceed the number
+  of committed debits under contention. It does not: the `$inc` is inside
+  the transaction, so a rejected or retried attempt rolls its increment
+  back. After 25 concurrent attempts of which 10 commit, the counter reads
+  exactly 10. That is the stronger property and is now what the test
+  asserts — a counter surviving rollback would mean the increment sat
+  outside the transaction boundary and therefore was not creating the
+  conflict when it needed to. Retry evidence comes instead from
+  `LedgerWriteResult.attempts`, read by calling the service directly.
+- **In-process ASGI concurrency is sufficient for these tests, and there is
+  evidence rather than an assertion.** Requests are fired with
+  `asyncio.gather` against the real app through an in-process transport;
+  every request awaits real MongoDB round trips, so many are in flight at
+  the database at once. The proof that this reproduces the races is that
+  the control tests reliably reproduce both bugs under the same harness.
+  What it does not cover is multi-process contention, which is Phase 6's
+  job — hence re-running reconciliation after the load test.
+- **Immutability: what is proven and what is not.** Proven: no mutating
+  route exists (audited against the generated OpenAPI schema, so a route
+  added later fails the test automatically), every plausible mutating HTTP
+  request is refused, and the collection validator rejects direct driver
+  writes that break the document shape or the sign convention, including
+  flipping a DEBIT to a CREDIT and including on update. Not proven, and
+  written as an executable test rather than buried in prose
+  (`test_the_recorded_limit_a_privileged_update_can_still_succeed`): a
+  caller with direct database credentials *can* rewrite an entry if it
+  keeps shape and sign self-consistent, because a `$jsonSchema` validator
+  judges only the resulting document and cannot compare it with the
+  previous one. MongoDB has no per-collection append-only mode. That test
+  asserts the tamper succeeds *and* that reconciliation detects it, so the
+  corruption is loud rather than silent.
+- **Privilege separation moved from Phase 4 to Phase 8.** The Phase 1 note
+  planned to close the gap above in Phase 4 with a least-privilege MongoDB
+  role (`find` + `insert` on `ledger_entries`, no `update` or `remove`).
+  Moved to the Phase 8 security pass, where it belongs: it requires
+  enabling authentication on the replica set, which additionally requires a
+  keyfile for internal auth, and that is a change to the deployment rather
+  than to the concurrency guarantees Phase 4 is about. TASK.md's own
+  wording for this phase ("directly via the driver if a collection
+  validator is in place") also points at validator-level enforcement here.
+  The honest claim until Phase 8 is recorded under Known Issues.
+- **Randomised reconciliation batch uses a fixed seed** (20260922) so a
+  failure is reproducible. Randomised in shape, not in repeatability.
+- **The reconciliation check is verified to be capable of failing.** Four
+  corruptions are induced deliberately and each must be caught: a deleted
+  credit, an orphaned pair that nets to zero, a correctly-balanced pair
+  that overdraws an account, and two errors in different currencies that
+  cancel globally. Three of those four leave `net_signed_minor == 0`, which
+  is precisely why the report carries more than one number.
+
 ## Known Issues
 
 - **Rate limiting is in-process.** `slowapi` keeps its counters in the
@@ -392,14 +505,33 @@ implementation overdraws.
   shared backend such as Redis. Recorded here honestly rather than
   claimed as a distributed rate limiter.
 - **Ledger immutability is application-and-validator level, not
-  unbypassable.** There are no update or delete routes for
-  `ledger_entries`, and a `$jsonSchema` collection validator rejects
-  malformed writes. But a client holding direct database credentials can
-  still modify documents. MongoDB has no equivalent of a
-  `REVOKE UPDATE`-style per-collection immutability guarantee that the
-  application could rely on. The honest claim is: immutable through the
-  application, enforced in one place, with a second schema-level check —
-  not physically immutable at rest.
+  unbypassable.** Measured in Phase 4 rather than assumed. What holds: no
+  update or delete route exists anywhere in the API (audited against the
+  generated OpenAPI schema), and the `$jsonSchema` + `$expr` collection
+  validator rejects any direct driver write that breaks an entry's shape or
+  its sign convention, including flipping a DEBIT to a CREDIT, and
+  including on update. What does not hold: a caller with direct database
+  credentials can rewrite an entry if it keeps shape and sign
+  self-consistent, for example changing `amount_minor` and
+  `signed_amount_minor` together. A `$jsonSchema` validator judges only the
+  resulting document and cannot compare it with the previous version, and
+  MongoDB has no per-collection append-only mode.
+
+  This gap is covered by an executable test
+  (`test_the_recorded_limit_a_privileged_update_can_still_succeed`) which
+  asserts the tamper succeeds *and* that reconciliation detects it
+  (`healthy=False`, `net_signed_minor=−7999`,
+  `unbalanced_transaction_groups=1`). Detection is not prevention, but it
+  is the difference between silent corruption and loud corruption.
+
+  **Fix scheduled for Phase 8:** a least-privilege MongoDB role granting
+  `find` and `insert` on `ledger_entries` but not `update` or `remove`,
+  since MongoDB privilege actions are per-collection. That turns "the
+  application never updates entries" into "the application's credentials
+  cannot update entries". It requires enabling authentication on the
+  replica set, which additionally requires a keyfile for internal auth
+  (generated at container start, never committed). When that lands, the
+  test above must be inverted to assert the write is refused.
 
 ## Real Measured Numbers (fill in only from actual test runs)
 
@@ -488,9 +620,114 @@ not a hypothetical: a correct, committed MongoDB multi-document
 transaction permits the overdraft, because the read and the writes share
 no document for WiredTiger to detect a conflict on.
 
+### Phase 4 — Concurrency guarantees
+Command: `.venv/bin/python -m pytest tests/concurrency -v -s`
+Run on 2026-09-22T15:14:27Z UTC. Python 3.12.9, MongoDB 7.0.43, replica set
+`rs0` (single node via docker-compose), Darwin 25.6.0 arm64.
+Result: **47 passed in 28.97s**
+Raw output: `tests/concurrency/results/phase4-concurrency-20260922T151427Z.txt`
+Full suite at the same commit: **159 passed in 38.41s**. `ruff` and `black`
+clean.
+
+**Overdraft, under concurrency**
+
+| Scenario | Requests | Succeeded | Final balance | Notes |
+|---|---|---|---|---|
+| 50 concurrent debits of 1000, opening balance 10000 | 50 | **10** | **0** | 40 rejected, all INSUFFICIENT_FUNDS |
+| 2 concurrent debits of 6000, opening balance 10000 | 2 | **1** | **4000** | the textbook lost-update case |
+| 10 concurrent debits of mixed sizes, opening balance 10000 | 10 | 3 | **100** | total debited 9900, never exceeded available |
+| 100 concurrent debits of 1 minor unit, opening balance 10000 | 100 | **100** | **9900** | a lost update would show as a balance above 9900 |
+| 10 senders x 5000 into one account | 10 | **10** | recipient **50000** | different sources, so no serialisation conflict |
+| A and B each sending their whole 5000 to the other | 2 | 2 | A 5000, B 5000, **sum 10000** | no value created or destroyed |
+
+**Control: the same scenario with the serialisation write removed**
+
+| Implementation | Requests | Succeeded | Final balance |
+|---|---|---|---|
+| Naive: `with_transaction` around read-check-write | 20 x 1000 against 10000 | **20** | **−10000 (overdrawn)** |
+| Ledgerlock | 20 x 1000 against 10000 | **10** | **0** |
+
+**Retry behaviour under maximum contention** (30 concurrent transfers on one
+source account, measured via `LedgerWriteResult.attempts`):
+- all 30 committed, **0** WRITE_CONFLICT errors reached any caller
+- attempts per transfer ranged **1 to 44**
+- **646 total transaction callback runs for 30 commits**, i.e. roughly 21x
+  amplification when every request contends on the same account. This is the
+  real cost of the guarantee and the number to watch in Phase 6. It is a
+  worst case: contention is per-account, so unrelated accounts do not pay
+  it (the 10-sender fan-in test committed 10 of 10 with no contention).
+- serialisation counter after 25 concurrent attempts of which 10 committed:
+  exactly **10** (rolled-back attempts leave no residue)
+
+**Idempotency, under concurrency**
+
+| Scenario | Requests | Accepted | Ledger effect |
+|---|---|---|---|
+| 20 concurrent submissions, one shared key | 20 | **1** (19 x 409 DUPLICATE_SUBMISSION) | 1 transaction document, exactly 4 entries total (2 funding + 2 transfer), destination credited **2500** once |
+| 15 concurrent submissions, one shared key | 15 | **1** | exactly 2 entries for that transaction, 1 DEBIT + 1 CREDIT, netting to 0 |
+| 12 concurrent duplicate *funding* requests | 12 | **1** | balance **75000**, not 900000 — a duplicate here would mint money |
+| 10 concurrent duplicates of an unaffordable transfer | 10 | 0 | nothing written, and the key was **not** consumed: a corrected retry with the same key then returned 201 |
+| 10 concurrent transfers with 10 *distinct* keys | 10 | **10** | destination credited 10000 — idempotency must not deduplicate genuine payments |
+
+Detection mechanism, measured: of 19 concurrent duplicates, **19 reported by
+the pre-check read and 0 by the unique index**. Explanation in the
+assumptions section above; the index is still what makes it work.
+
+**Control: idempotency with the unique index removed**
+
+| Implementation | Requests (one shared key) | Applied | Destination credited |
+|---|---|---|---|
+| Check-then-insert, no unique index | 20 | **19** | **95000** for a single 5000 transfer |
+| Ledgerlock | 20 | **1** | 5000 |
+
+**Immutability**
+- OpenAPI audit: **0** PUT/PATCH/DELETE routes anywhere in the API
+- 10 plausible mutating HTTP requests against ledger entries, transactions
+  and balances: all refused (404/405)
+- direct driver `$set amount_minor`, `$set signed_amount_minor`, `$set
+  direction: CREDIT`, `$set` of an unexpected field, `$unset` of a required
+  field: **all rejected** by the collection validator
+- injecting a second DEBIT into an existing transaction: **rejected** by
+  `uq_one_entry_per_direction_per_transaction`
+- a committed entry is **byte-identical** after 5 further transfers on the
+  same accounts
+- compensating transaction: after a mistaken 3000 transfer and a 3000
+  reversal, the original 2 entries are untouched, total entries 6, both
+  balances back to their starting values
+- **known gap, tested and reported:** a direct-database update that keeps
+  shape and sign self-consistent *does* succeed. Reconciliation caught it —
+  `healthy=False`, `net_signed_minor=−7999`,
+  `unbalanced_transaction_groups=1`
+
+**Reconciliation**
+
+| Scenario | Entries | Transactions | net_signed_minor | healthy |
+|---|---|---|---|---|
+| Empty ledger | 0 | 0 | **0** | True |
+| 104 concurrent randomised transfers, 8 accounts, 2 currencies (seed 20260922) | 122 | 61 | **0** | True |
+| 80 concurrent transfers out of one account (heavy retry churn) | — | — | **0** | True |
+
+For the randomised batch: 53 accepted, 43 rejected CURRENCY_MISMATCH, 8
+rejected INSUFFICIENT_FUNDS; per-currency net `{USD: 0, EUR: 0}`; entries
+without a transaction 0; unbalanced groups 0; negative USER accounts none;
+`total_entries == total_transactions * 2` exactly.
+
+Boundary cross-check: after funding 12000 + 7500 + 33333 and moving money
+between the accounts, the SYSTEM account balance was **−52833** and total
+USER holdings **52833** — equal and opposite, exactly.
+
+**The reconciliation check is verified to be able to fail**
+
+| Induced corruption | net_signed_minor | balanced | What caught it |
+|---|---|---|---|
+| Deleted the CREDIT of a pair | −1500 | False | net, plus 1 unbalanced group |
+| Orphaned pair belonging to no transaction | **0** | True | `entries_without_transaction=2` |
+| Valid pair that overdraws an account | **0** | True | `negative_user_accounts` |
+| −700 USD and +700 EUR, cancelling globally | **0** | False | per-currency net |
+
+Three of those four leave the global net at zero, which is why the report
+carries more than one number.
+
 ### Later phases
-- Overdraft test: probe run during Phase 3 (above); the permanent test is
-  Phase 4
-- Idempotency test: not run yet (Phase 4)
-- Reconciliation: not run yet (Phase 4, re-run after Phase 6 load test)
-- Load test: not run yet (Phase 6)
+- Load test: not run yet (Phase 6); reconciliation to be re-run immediately
+  afterwards

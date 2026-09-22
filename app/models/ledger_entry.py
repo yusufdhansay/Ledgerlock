@@ -81,28 +81,55 @@ class LedgerEntryPublic(BaseModel):
 
 
 class ReconciliationReport(BaseModel):
-    """Result of the system-wide sum-to-zero check.
+    """Result of the system-wide ledger integrity check.
 
-    `net_signed_minor` is the number that matters. Anything other than
-    exactly 0 means the ledger is broken: some transaction wrote one side
-    of its pair without the other, which the atomic write is designed to
-    make impossible.
+    `net_signed_minor` is the headline number. Anything other than exactly
+    0 means the ledger is broken: some transaction wrote one side of its
+    pair without the other, which the atomic write is designed to make
+    impossible.
+
+    The other counters exist because a net of zero on its own is a weaker
+    statement than it looks. Two offsetting errors, or a pair of entries
+    that net to zero but belong to no transaction, would still total zero.
+    Each field below closes one of those loopholes, and every one of them
+    must be 0 for the ledger to be sound.
     """
 
     balanced: bool = Field(
         description="True if and only if net_signed_minor == 0 for every currency."
+    )
+    healthy: bool = Field(
+        description=(
+            "True only if balanced AND every integrity counter below is "
+            "zero. This is the field to assert on."
+        )
     )
     net_signed_minor: int = Field(
         description="Sum of signed_amount_minor across every ledger entry. Must be 0."
     )
     total_entries: int = Field(ge=0)
     total_transactions: int = Field(ge=0)
-    orphaned_entries: int = Field(
+    entries_without_transaction: int = Field(
         ge=0,
         description=(
-            "Entries whose transaction_id has no matching transaction "
-            "document, or whose transaction does not have exactly one debit "
-            "and one credit. Must be 0."
+            "Entries whose transaction_id matches no transaction document. "
+            "Must be 0."
+        ),
+    )
+    unbalanced_transaction_groups: int = Field(
+        ge=0,
+        description=(
+            "Transactions whose entries are not exactly one DEBIT and one "
+            "CREDIT summing to zero. Must be 0. Catches a half-written pair "
+            "that a global net of zero would otherwise hide."
+        ),
+    )
+    negative_user_accounts: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Ids of USER accounts whose computed balance is below zero. Must "
+            "be empty: this is the overdraft guarantee checked globally, "
+            "against the ledger rather than against any one request."
         ),
     )
     per_currency_net_minor: dict[str, int] = Field(

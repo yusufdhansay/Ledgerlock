@@ -1,0 +1,198 @@
+Ledgerlock Phase 4 concurrency test run
+Captured:    2026-09-22T15:14:27Z UTC
+Command:     .venv/bin/python -m pytest tests/concurrency -v -s
+Python:      Python 3.12.9
+MongoDB:     7.0.43
+Replica set: rs0 (single node, via docker-compose.yml)
+Host:        Darwin 25.6.0 arm64
+
+Note: application JSON log lines were filtered out of this capture to
+keep it readable. Nothing else was altered. Rerun the command above to
+reproduce, including the log lines.
+================================================================
+
+============================= test session starts ==============================
+platform darwin -- Python 3.12.9, pytest-9.1.1, pluggy-1.6.0 -- /Users/yusufamin/Ledgerlock/.venv/bin/python
+cachedir: .pytest_cache
+rootdir: /Users/yusufamin/Ledgerlock
+configfile: pyproject.toml
+plugins: asyncio-1.4.0, anyio-4.15.1, locust-2.46.6
+asyncio: mode=Mode.AUTO, debug=False, asyncio_default_fixture_loop_scope=function, asyncio_default_test_loop_scope=function
+collecting ... collected 47 items
+
+tests/concurrency/test_idempotency.py::test_twenty_concurrent_submissions_of_one_key_apply_once {"asctime": "2026-09-22 20:44:29,939", "levelname": "WARNING", "name": "app.core.errors", "message": "request_rejected", "error_code": "DUPLICATE_SUBMISSION", "status_code": 409, "path": "/transactions", "method": "POST", "idempotency_key": "concurrent-duplicate-c7e99c55-df35-433e-a237-5fcbae3f2c54", "existing_transaction_id": "6ab29b554987402caefb16ed", "detected_by": "pre_check", "level": "WARNING", "logger": "app.core.errors", "event": "request_rejected"}
+
+IDEMPOTENCY TEST: 20 concurrent submissions of one key
+IDEMPOTENCY TEST: outcomes = {'201': 1, '409 DUPLICATE_SUBMISSION': 19}
+IDEMPOTENCY TEST: transaction documents for that key = 1 (expected 1)
+IDEMPOTENCY TEST: total ledger entries = 4 (expected 4: 2 from funding, 2 from the single transfer)
+IDEMPOTENCY TEST: destination balance = 2500 (expected 2500, i.e. applied once)
+PASSED
+tests/concurrency/test_idempotency.py::test_exactly_one_pair_of_ledger_entries_exists_afterwards {"asctime": "2026-09-22 20:44:30,146", "levelname": "WARNING", "name": "app.core.errors", "message": "request_rejected", "error_code": "DUPLICATE_SUBMISSION", "status_code": 409, "path": "/transactions", "method": "POST", "idempotency_key": "entry-shape-4f511021-7830-49a3-a7b5-2ebf2e9ae488", "existing_transaction_id": "6ab29b564987402caefb16fc", "detected_by": "pre_check", "level": "WARNING", "logger": "app.core.errors", "event": "request_rejected"}
+
+ENTRY SHAPE TEST: outcomes = {'201': 1, '409 DUPLICATE_SUBMISSION': 14}
+ENTRY SHAPE TEST: entries for the transaction = 2
+ENTRY SHAPE TEST: directions = ['CREDIT', 'DEBIT']
+PASSED
+tests/concurrency/test_idempotency.py::test_control_without_the_unique_index_duplicates_are_applied_twice 
+CONTROL TEST (check-then-insert, no unique index): 20 concurrent submissions of one key
+CONTROL TEST: applied = 20 (correct answer is 1)
+CONTROL TEST: transaction documents stored = 20
+CONTROL TEST: destination credited 100000 for a single 5000 transfer
+CONTROL TEST: this is why idempotency cannot rest on a pre-check read alone. The unique index on transactions.idempotency_key is what makes the duplicate fail at write time.
+PASSED
+tests/concurrency/test_idempotency.py::test_the_unique_index_rejects_a_second_use_of_a_key 
+DB CONSTRAINT TEST: a direct driver insert reusing a committed idempotency key was rejected by uq_idempotency_key
+PASSED
+tests/concurrency/test_idempotency.py::test_how_concurrent_duplicates_are_actually_detected {"asctime": "2026-09-22 20:44:30,666", "levelname": "WARNING", "name": "app.core.errors", "message": "request_rejected", "error_code": "DUPLICATE_SUBMISSION", "status_code": 409, "path": "/transactions", "method": "POST", "idempotency_key": "detection-observed-65b6a897-16c9-4586-a34c-08f6f1172bf5", "existing_transaction_id": "6ab29b564987402caefb175a", "detected_by": "pre_check", "level": "WARNING", "logger": "app.core.errors", "event": "request_rejected"}
+
+DETECTION TEST: outcomes = {'201': 1, '409 DUPLICATE_SUBMISSION': 19}
+DETECTION TEST: reported by the pre-check read = 19
+DETECTION TEST: reported by the unique index    = 0
+DETECTION TEST: pre-check dominance is expected. A duplicate insert against an uncommitted transaction raises WriteConflict, which is retried, and the retry's pre-check then sees the committed winner.
+PASSED
+tests/concurrency/test_idempotency.py::test_concurrent_duplicates_of_an_unaffordable_transfer {"asctime": "2026-09-22 20:44:30,814", "levelname": "WARNING", "name": "app.core.errors", "message": "request_rejected", "error_code": "INSUFFICIENT_FUNDS", "status_code": 422, "path": "/transactions", "method": "POST", "account_id": "6ab29b564987402caefb1764", "balance_minor": 10000, "requested_minor": 999999, "shortfall_minor": 989999, "level": "WARNING", "logger": "app.core.errors", "event": "request_rejected"}
+
+UNAFFORDABLE DUPLICATE TEST: outcomes = {'422 INSUFFICIENT_FUNDS': 10}
+UNAFFORDABLE DUPLICATE TEST: corrected retry with the same key = 201 (expected 201, the key was never consumed)
+PASSED
+tests/concurrency/test_idempotency.py::test_distinct_keys_submitted_concurrently_all_apply 
+DISTINCT KEYS TEST: outcomes = {'201': 10}
+DISTINCT KEYS TEST: destination balance = 10000 (expected 10000, all ten applied)
+PASSED
+tests/concurrency/test_idempotency.py::test_funding_is_idempotent_too {"asctime": "2026-09-22 20:44:31,248", "levelname": "WARNING", "name": "app.core.errors", "message": "request_rejected", "error_code": "DUPLICATE_SUBMISSION", "status_code": 409, "path": "/accounts/6ab29b574987402caefb179d/funding", "method": "POST", "idempotency_key": "duplicate-funding-b1e3491f-aeec-4fa4-bfa5-0d3501edac9c", "existing_transaction_id": "6ab29b574987402caefb179e", "detected_by": "pre_check", "level": "WARNING", "logger": "app.core.errors", "event": "request_rejected"}
+
+DUPLICATE FUNDING TEST: outcomes = {'201': 1, '409 DUPLICATE_SUBMISSION': 11}
+DUPLICATE FUNDING TEST: balance = 75000 (expected 75000, funded once)
+PASSED
+tests/concurrency/test_immutability.py::test_no_route_can_mutate_ledger_entries_or_transactions 
+ROUTE AUDIT: paths = ['/accounts', '/accounts/{account_id}', '/accounts/{account_id}/balance', '/accounts/{account_id}/funding', '/auth/login', '/auth/logout', '/auth/me', '/auth/register', '/health', '/health/ready', '/reconciliation', '/transactions', '/transactions/{transaction_id}']
+ROUTE AUDIT: mutating routes found = none
+PASSED
+tests/concurrency/test_immutability.py::test_mutating_requests_over_http_are_refused[PUT-/ledger-entries/{entry_id}] PASSED
+tests/concurrency/test_immutability.py::test_mutating_requests_over_http_are_refused[PATCH-/ledger-entries/{entry_id}] PASSED
+tests/concurrency/test_immutability.py::test_mutating_requests_over_http_are_refused[DELETE-/ledger-entries/{entry_id}] PASSED
+tests/concurrency/test_immutability.py::test_mutating_requests_over_http_are_refused[PUT-/ledger_entries/{entry_id}] PASSED
+tests/concurrency/test_immutability.py::test_mutating_requests_over_http_are_refused[DELETE-/transactions/{transaction_id}] PASSED
+tests/concurrency/test_immutability.py::test_mutating_requests_over_http_are_refused[PATCH-/transactions/{transaction_id}] PASSED
+tests/concurrency/test_immutability.py::test_mutating_requests_over_http_are_refused[PUT-/transactions/{transaction_id}] PASSED
+tests/concurrency/test_immutability.py::test_mutating_requests_over_http_are_refused[DELETE-/accounts/{account_id}/balance] PASSED
+tests/concurrency/test_immutability.py::test_mutating_requests_over_http_are_refused[PUT-/accounts/{account_id}/balance] PASSED
+tests/concurrency/test_immutability.py::test_mutating_requests_over_http_are_refused[PATCH-/accounts/{account_id}/balance] PASSED
+tests/concurrency/test_immutability.py::test_the_balance_endpoint_is_read_only_and_cannot_be_set PASSED
+tests/concurrency/test_immutability.py::test_direct_update_breaking_the_sign_convention_is_rejected 
+VALIDATOR TEST: direct driver updates to amount_minor and to signed_amount_minor were both rejected by the collection validator
+PASSED
+tests/concurrency/test_immutability.py::test_direct_update_flipping_the_direction_is_rejected PASSED
+tests/concurrency/test_immutability.py::test_direct_update_adding_an_unexpected_field_is_rejected PASSED
+tests/concurrency/test_immutability.py::test_direct_update_removing_a_required_field_is_rejected PASSED
+tests/concurrency/test_immutability.py::test_a_transaction_cannot_gain_a_second_entry_on_the_same_side 
+INDEX TEST: injecting a second DEBIT into an existing transaction was rejected by uq_one_entry_per_direction_per_transaction
+PASSED
+tests/concurrency/test_immutability.py::test_the_recorded_limit_a_privileged_update_can_still_succeed 
+KNOWN LIMIT TEST: a consistent direct-database update DID succeed (validator can only judge the resulting document)
+KNOWN LIMIT TEST: reconciliation caught it -> healthy=False, net_signed_minor=-7999, unbalanced_transaction_groups=1
+PASSED
+tests/concurrency/test_immutability.py::test_a_committed_entry_is_untouched_by_later_activity 
+APPEND-ONLY TEST: the original entry is byte-identical after 5 further transfers on the same accounts
+PASSED
+tests/concurrency/test_immutability.py::test_corrections_are_made_by_compensating_transaction 
+COMPENSATION TEST: entries for the original transfer still present = 2
+COMPENSATION TEST: total entries = 6 (2 funding + 2 mistake + 2 correction)
+COMPENSATION TEST: source = 10000, destination = 0
+PASSED
+tests/concurrency/test_overdraft.py::test_fifty_concurrent_debits_cannot_overdraw_the_account {"asctime": "2026-09-22 20:44:34,864", "levelname": "WARNING", "name": "app.core.errors", "message": "request_rejected", "error_code": "INSUFFICIENT_FUNDS", "status_code": 422, "path": "/transactions", "method": "POST", "account_id": "6ab29b594987402caefb18e3", "balance_minor": 0, "requested_minor": 1000, "shortfall_minor": 1000, "level": "WARNING", "logger": "app.core.errors", "event": "request_rejected"}
+
+OVERDRAFT TEST: 50 concurrent debits of 1000 against an opening balance of 10000
+OVERDRAFT TEST: outcomes = {'201': 10, '422 INSUFFICIENT_FUNDS': 40}
+OVERDRAFT TEST: succeeded = 10 (expected 10)
+OVERDRAFT TEST: final source balance = 0 (expected 0)
+OVERDRAFT TEST: destination balance = 10000
+PASSED
+tests/concurrency/test_overdraft.py::test_two_concurrent_debits_that_individually_fit_but_jointly_do_not {"asctime": "2026-09-22 20:44:35,702", "levelname": "WARNING", "name": "app.core.errors", "message": "request_rejected", "error_code": "INSUFFICIENT_FUNDS", "status_code": 422, "path": "/transactions", "method": "POST", "account_id": "6ab29b5b4987402caefb190d", "balance_minor": 4000, "requested_minor": 6000, "shortfall_minor": 2000, "level": "WARNING", "logger": "app.core.errors", "event": "request_rejected"}
+
+PAIRED DEBIT TEST: statuses = [201, 422]
+PAIRED DEBIT TEST: final balance = 4000 (expected 4000)
+PASSED
+tests/concurrency/test_overdraft.py::test_concurrent_debits_of_mixed_sizes_never_overdraw {"asctime": "2026-09-22 20:44:35,924", "levelname": "WARNING", "name": "app.core.errors", "message": "request_rejected", "error_code": "INSUFFICIENT_FUNDS", "status_code": 422, "path": "/transactions", "method": "POST", "account_id": "6ab29b5b4987402caefb191c", "balance_minor": 2200, "requested_minor": 3300, "shortfall_minor": 1100, "level": "WARNING", "logger": "app.core.errors", "event": "request_rejected"}
+
+MIXED SIZE TEST: requested amounts = [1500, 2750, 900, 4000, 3300, 1100, 2450, 6000, 750, 5000]
+MIXED SIZE TEST: outcomes = {'201': 6, '422 INSUFFICIENT_FUNDS': 4}
+MIXED SIZE TEST: succeeded amounts = [1500, 2750, 900, 1100, 2450, 750]
+MIXED SIZE TEST: total debited = 9450 of 10000 available
+MIXED SIZE TEST: final balance = 550
+PASSED
+tests/concurrency/test_overdraft.py::test_concurrent_debits_from_several_users_to_one_destination 
+FAN-IN TEST: outcomes = {'201': 10}
+FAN-IN TEST: recipient balance = 50000 (expected 50000)
+PASSED
+tests/concurrency/test_overdraft.py::test_concurrent_transfers_in_both_directions_stay_consistent 
+BIDIRECTIONAL TEST: outcomes = {'201': 2}
+BIDIRECTIONAL TEST: A = 5000, B = 5000, sum = 10000 (expected 10000)
+PASSED
+tests/concurrency/test_overdraft.py::test_a_hundred_concurrent_debits_of_one_minor_unit 
+HIGH CONTENTION TEST: outcomes = {'201': 100}
+HIGH CONTENTION TEST: succeeded = 100 of 100
+HIGH CONTENTION TEST: final balance = 9900 (expected 9900)
+PASSED
+tests/concurrency/test_overdraft.py::test_control_a_plain_transaction_without_serialisation_overdraws 
+CONTROL TEST (naive implementation, no serialisation write): 20 concurrent debits of 1000 against 10000
+CONTROL TEST: succeeded = 20 (only 10 were affordable)
+CONTROL TEST: final balance = -10000 (OVERDRAWN)
+CONTROL TEST: this is what a plain MongoDB transaction around read-check-write does. It is why ledger_service takes a serialisation write on the source account before reading the balance.
+PASSED
+tests/concurrency/test_overdraft.py::test_the_serialisation_write_is_itself_transactional {"asctime": "2026-09-22 20:44:48,686", "levelname": "WARNING", "name": "app.core.errors", "message": "request_rejected", "error_code": "INSUFFICIENT_FUNDS", "status_code": 422, "path": "/transactions", "method": "POST", "account_id": "6ab29b684987402caefb1b20", "balance_minor": 0, "requested_minor": 1000, "shortfall_minor": 1000, "level": "WARNING", "logger": "app.core.errors", "event": "request_rejected"}
+
+ROLLBACK TEST: 25 concurrent debits, 10 committed
+ROLLBACK TEST: serialisation counter = 10 (equals committed debits; rejected and retried attempts rolled their increment back)
+PASSED
+tests/concurrency/test_overdraft.py::test_write_conflicts_are_retried_rather_than_surfaced 
+RETRY TEST: 30 concurrent transfers on one source account
+RETRY TEST: attempts per transfer = [1, 2, 3, 5, 7, 8, 9, 11, 12, 14, 15, 17, 17, 19, 20, 22, 23, 25, 26, 27, 29, 31, 31, 33, 36, 36, 38, 40, 41, 42]
+RETRY TEST: total callback runs = 640 for 30 commits
+RETRY TEST: WRITE_CONFLICT errors surfaced to callers = 0
+PASSED
+tests/concurrency/test_reconciliation.py::test_an_empty_ledger_reconciles PASSED
+tests/concurrency/test_reconciliation.py::test_a_randomised_batch_of_concurrent_transfers_reconciles {"asctime": "2026-09-22 20:44:50,365", "levelname": "WARNING", "name": "app.core.errors", "message": "request_rejected", "error_code": "CURRENCY_MISMATCH", "status_code": 422, "path": "/transactions", "method": "POST", "requested_currency": "EUR", "source_currency": "EUR", "destination_currency": "USD", "level": "WARNING", "logger": "app.core.errors", "event": "request_rejected"}
+
+RECONCILIATION TEST: 104 concurrent transfers across 8 accounts in 2 currencies (seed 20260922)
+RECONCILIATION TEST: outcomes = {'201': 57, '422 CURRENCY_MISMATCH': 43, '422 INSUFFICIENT_FUNDS': 4}
+RECONCILIATION TEST: total ledger entries = 130
+RECONCILIATION TEST: total transactions   = 65
+RECONCILIATION TEST: net_signed_minor     = 0 (must be exactly 0)
+RECONCILIATION TEST: per currency         = {'USD': 0, 'EUR': 0}
+RECONCILIATION TEST: entries without a transaction = 0
+RECONCILIATION TEST: unbalanced transaction groups = 0
+RECONCILIATION TEST: negative USER accounts        = []
+RECONCILIATION TEST: healthy = True
+PASSED
+tests/concurrency/test_reconciliation.py::test_reconciliation_holds_after_heavy_contention_on_one_account {"asctime": "2026-09-22 20:44:57,087", "levelname": "WARNING", "name": "app.core.errors", "message": "request_rejected", "error_code": "INSUFFICIENT_FUNDS", "status_code": 422, "path": "/transactions", "method": "POST", "account_id": "6ab29b6b4987402caefb1c88", "balance_minor": 0, "requested_minor": 1000, "shortfall_minor": 1000, "level": "WARNING", "logger": "app.core.errors", "event": "request_rejected"}
+
+CONTENTION RECONCILIATION: outcomes = {'201': 40, '422 INSUFFICIENT_FUNDS': 40}
+CONTENTION RECONCILIATION: source = 0, destination = 40000
+CONTENTION RECONCILIATION: net_signed_minor = 0, healthy = True
+PASSED
+tests/concurrency/test_reconciliation.py::test_the_system_account_balance_equals_total_user_holdings 
+BOUNDARY TEST: total funded = 52833
+BOUNDARY TEST: SYSTEM account balance = -52833
+BOUNDARY TEST: total USER holdings    = 52833
+PASSED
+tests/concurrency/test_reconciliation.py::test_reconciliation_detects_a_missing_credit 
+DETECTION: missing credit -> net_signed_minor=-1500, unbalanced_groups=1, healthy=False
+PASSED
+tests/concurrency/test_reconciliation.py::test_reconciliation_detects_an_entry_with_no_transaction 
+DETECTION: orphaned pair -> net_signed_minor=0 (still zero), entries_without_transaction=2, healthy=False
+PASSED
+tests/concurrency/test_reconciliation.py::test_reconciliation_detects_a_negative_user_account 
+DETECTION: overdrawn account -> net_signed_minor=0 (zero), balanced=True, negative_user_accounts=['6ab29b724987402caefb1d44'], healthy=False
+PASSED
+tests/concurrency/test_reconciliation.py::test_reconciliation_detects_a_per_currency_imbalance_that_nets_out 
+DETECTION: cross-currency cancellation -> net_signed_minor=0 (zero), per currency={'EUR': 700, 'USD': -700}, balanced=False
+PASSED
+tests/concurrency/test_reconciliation.py::test_the_reconciliation_endpoint_reports_a_healthy_ledger 
+ENDPOINT TEST: GET /reconciliation -> {'balanced': True, 'healthy': True, 'net_signed_minor': 0, 'total_entries': 4, 'total_transactions': 2, 'entries_without_transaction': 0, 'unbalanced_transaction_groups': 0, 'negative_user_accounts': [], 'per_currency_net_minor': {'USD': 0}, 'checked_at': '2026-09-22T15:14:58.482722Z'}
+PASSED
+tests/concurrency/test_reconciliation.py::test_the_reconciliation_endpoint_requires_authentication {"asctime": "2026-09-22 20:44:58,559", "levelname": "WARNING", "name": "app.core.errors", "message": "request_rejected", "error_code": "UNAUTHENTICATED", "status_code": 401, "path": "/reconciliation", "method": "GET", "level": "WARNING", "logger": "app.core.errors", "event": "request_rejected"}
+PASSED
+
+============================= 47 passed in 28.97s ==============================
