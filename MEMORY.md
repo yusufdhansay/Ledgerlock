@@ -4,7 +4,7 @@ This file is the persistent context across sessions. Read it first,
 every time, before doing anything else.
 
 ## Current Phase
-Phase 5: Dockerize and compose — not started
+Phase 6: Load testing — not started
 
 ## Completed Phases
 
@@ -110,9 +110,30 @@ Phase 5: Dockerize and compose — not started
 - Raw output captured to
   `tests/concurrency/results/phase4-concurrency-20260922T151427Z.txt`.
 
+### Phase 5 — Dockerized service with compose orchestration (2026-09-22)
+- `Dockerfile`: two stages so build tooling never reaches the runtime
+  image. Pinned to `python:3.12.9-slim`, the exact patch version the suite
+  runs on locally. Runs as unprivileged uid 1001, one uvicorn worker per
+  container, container healthcheck hitting `/health` via the interpreter
+  rather than adding curl to the image.
+- `.dockerignore`: keeps `.env`, `.git`, the host `.venv`, tests and caches
+  out of the build context entirely.
+- `docker-compose.yml`: adds the `api` service, gated on
+  `depends_on: mongo: condition: service_healthy` so it never starts
+  against a mongod that cannot yet serve transactions. Runs with
+  `read_only: true`, `no-new-privileges`, and a tmpfs for `/tmp`.
+- `scripts/verify_compose.sh`: 33-assertion end-to-end check over HTTP.
+- `tests/unit/test_config.py`: 38 configuration tests, added because of the
+  bug below.
+- Verified image hygiene: `id` reports uid 1001, `/app` contains only
+  `app/`, and there is no `.env`, `tests/` or `.git` in the image.
+- Raw verification output:
+  `tests/concurrency/results/phase5-compose-e2e-20260922T152634Z.txt`
+
 ## In Progress
-Nothing in progress. Phase 4 closed; Phase 5 (Dockerfile, compose wiring
-the API to MongoDB, end-to-end verification) is next.
+Nothing in progress. Phase 5 closed; Phase 6 (Locust load test with
+captured throughput and latency, then reconciliation immediately after) is
+next.
 
 ## Assumptions
 
@@ -495,6 +516,61 @@ the API to MongoDB, end-to-end verification) is next.
   cancel globally. Three of those four leave `net_signed_minor == 0`, which
   is precisely why the report carries more than one number.
 
+### Phase 5 assumptions and findings
+
+- **A real bug found only by containerising: `SUPPORTED_CURRENCIES=USD,EUR`
+  crashed startup.** pydantic-settings treats any list-typed field as
+  "complex" and tries to `json.loads` the environment value *before* any
+  validator runs, so the `mode="before"` validator written in Phase 2 never
+  got a chance and the app raised `SettingsError` at boot. It passed the
+  entire local suite because the development `.env` was created before that
+  setting existed and so fell through to the default list. Fixed by
+  annotating the field with `pydantic_settings.NoDecode`, which hands the
+  raw string to the validator. Two lessons recorded rather than just the
+  fix: configuration parsing is code and needs its own tests, and a test
+  that constructs `Settings(**kwargs)` does not exercise the environment
+  source where the bug lived. `tests/unit/test_config.py` now covers every
+  documented input form *through the environment*, plus every case where
+  the app is supposed to refuse to start.
+- **The compose verification is genuine multi-process concurrency, which
+  the Phase 4 suite is not.** `scripts/verify_compose.sh` fires each
+  concurrent request from a separate `curl` process over TCP against the
+  containerised server, rather than driving the ASGI app in one event loop.
+  It independently reproduced both guarantees: 30 concurrent debits of 5000
+  against a balance of 74000 produced exactly 14 successes and a final
+  balance of exactly 4000, and 10 concurrent submissions of one idempotency
+  key produced exactly 1 acceptance. That matters because it removes the
+  main caveat on the Phase 4 harness.
+- **`scripts/` added, which is not in ARCHITECTURE.md's tree.** TASK.md
+  Phase 5 requires verifying the full flow end to end via docker-compose,
+  and that is an operational check against a running stack rather than a
+  unit test, so it does not belong under `tests/`. Its raw output is saved
+  alongside the Phase 4 results because its overdraft and idempotency
+  sections are concurrency evidence of the same kind.
+- **Liveness does not touch the database; readiness does.** `/health`
+  deliberately makes no database call, so a brief MongoDB outage does not
+  make Docker or Kubernetes restart otherwise-healthy API containers and
+  turn a partial outage into a full one. `/health/ready` does check for a
+  transaction-capable primary, because an instance that cannot start a
+  transaction cannot honour the atomicity guarantee and should be taken out
+  of service rather than sent traffic.
+- **One uvicorn worker per container, deliberately.** Scaling is horizontal
+  (compose replicas, or the Phase 7 Deployment and HPA). Keeping it to one
+  worker means the in-process rate limiter's known limitation is a function
+  of replica count alone rather than replica count multiplied by worker
+  count.
+- **Environment values are listed explicitly in compose rather than via
+  `env_file: .env`.** `.env` holds host-oriented values — notably
+  `MONGODB_URI` pointing at `localhost` — which would be wrong inside the
+  compose network and would silently override the correct value. Only
+  `JWT_SECRET_KEY` is interpolated from `.env`, using
+  `${JWT_SECRET_KEY:?...}` so compose fails with an actionable message
+  instead of starting with a guessable key.
+- **Image size is 306MB.** Not optimised further. A distroless or Alpine
+  base would cut it, but Alpine's musl libc changes the wheels in play for
+  bcrypt and pymongo, and that is a real risk to take on for a number that
+  does not affect anything this project is demonstrating.
+
 ## Known Issues
 
 - **Rate limiting is in-process.** `slowapi` keeps its counters in the
@@ -727,6 +803,36 @@ USER holdings **52833** — equal and opposite, exactly.
 
 Three of those four leave the global net at zero, which is why the report
 carries more than one number.
+
+### Phase 5 — End-to-end verification against docker-compose
+Command: `./scripts/verify_compose.sh`
+Run on 2026-09-22T15:26:34Z UTC against a freshly built stack with empty
+volumes. API image `ledgerlock-api:local` (python:3.12.9-slim, non-root uid
+1001, `read_only: true`), MongoDB 7.0 single-node replica set `rs0`.
+Result: **33 assertions passed, 0 failed**
+Raw output: `tests/concurrency/results/phase5-compose-e2e-20260922T152634Z.txt`
+Full test suite at the same commit: **197 passed** (159 + 38 new
+configuration tests).
+
+Unlike the Phase 4 suite, each concurrent request here comes from a separate
+`curl` process over TCP, so this is genuine multi-process concurrency against
+the containerised server.
+
+| Step | Result |
+|---|---|
+| Readiness reports a transaction-capable primary | `{"status":"ready","replica_set":"rs0"}` |
+| New account balance, computed with no entries | exactly **0**, entry_count 0 |
+| After funding 100000 | balance **100000**, entry_count 1 |
+| Transfer of 25000 | source **75000**, destination **25000** |
+| 10 concurrent submissions of one idempotency key | **1 x 201, 9 x 409**; destination moved from 25000 to **26000**, i.e. applied once |
+| 30 concurrent debits of 5000 against a balance of 74000 | **14 x 201, 16 x 422**; final balance exactly **4000**; never negative |
+| Reconciliation after that load | `net_signed_minor` **0**, `balanced` true, `healthy` true, 34 entries, 17 transactions, `total_entries == total_transactions * 2` |
+| PUT / PATCH / DELETE on a transaction | all **405** |
+| PUT on a balance | **405** (there is no stored balance to write) |
+
+Image hygiene, verified by inspecting the built image: process runs as
+`uid=1001(ledgerlock)`, `/app` contains only `app/`, and the image contains
+no `.env`, no `tests/`, and no `.git`.
 
 ### Later phases
 - Load test: not run yet (Phase 6); reconciliation to be re-run immediately

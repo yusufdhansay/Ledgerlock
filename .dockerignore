@@ -1,0 +1,50 @@
+# Keep the build context small and, more importantly, keep secrets and host
+# state out of the image entirely.
+
+# Secrets. Never in an image layer, even a discarded one.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets/
+
+# Version control and CI
+.git
+.github
+.gitignore
+
+# Host virtual environment: wrong platform, and it would shadow /opt/venv
+.venv
+venv
+env
+
+# Caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Tests, docs, and tooling are not needed at runtime. The test suite runs in
+# CI against the source tree, not inside this image.
+tests/
+*.md
+!README.md
+pyproject.toml
+requirements-dev.txt
+k8s/
+scripts/
+docker-compose.yml
+Dockerfile
+
+# Local database data
+data/
+mongo-data/
+
+# Editors / OS
+.DS_Store
+.idea/
+*.swp

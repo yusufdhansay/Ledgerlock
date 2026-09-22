@@ -8,10 +8,12 @@ signing key, so this app refuses to start without one being supplied.
 
 from __future__ import annotations
 
+import json
 from functools import lru_cache
+from typing import Annotated
 
 from pydantic import Field, field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 #: The placeholder shipped in .env.example. Treated as "not configured"
 #: so that copying the example file without editing it fails loudly
@@ -70,7 +72,15 @@ class Settings(BaseSettings):
     app_env: str = Field(default="development")
     log_level: str = Field(default="INFO")
 
-    supported_currencies: list[str] = Field(
+    # `NoDecode` is required, not cosmetic. Without it, pydantic-settings
+    # treats any list-typed field as "complex" and tries to json.loads the
+    # environment value *before* any validator runs, so a perfectly
+    # reasonable `SUPPORTED_CURRENCIES=USD,EUR` raises a SettingsError at
+    # startup. NoDecode hands the raw string to the validator below instead.
+    # This was found by the containerised API failing to boot in Phase 5,
+    # having passed every local test, because the local .env predated the
+    # setting and so fell through to the default.
+    supported_currencies: Annotated[list[str], NoDecode] = Field(
         default=["USD", "EUR", "GBP", "INR"],
         description=(
             "Currencies accounts may be opened in. A whitelist rather than "
@@ -87,7 +97,7 @@ class Settings(BaseSettings):
         if isinstance(value, str):
             stripped = value.strip()
             if stripped.startswith("["):
-                return stripped  # leave JSON for pydantic to parse
+                return json.loads(stripped)
             return [
                 part.strip().upper() for part in stripped.split(",") if part.strip()
             ]

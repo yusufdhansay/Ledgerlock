@@ -1,0 +1,78 @@
+Ledgerlock Phase 5 end-to-end verification against docker-compose
+Captured:  2026-09-22T15:26:34Z UTC
+Command:   ./scripts/verify_compose.sh
+Stack:     docker compose up -d --build (fresh volumes)
+API image: ledgerlock-api:local (python:3.12.9-slim, non-root, read_only)
+MongoDB:   mongo:7.0, single-node replica set rs0
+Host:      Darwin 25.6.0 arm64, Docker 29.7.2
+
+Concurrency note: unlike the Phase 4 suite, which drives the ASGI app
+in one process, this script fires each concurrent request from a
+separate curl process against the containerised server over TCP. The
+overdraft and idempotency sections below are therefore genuine
+multi-process, multi-connection concurrency.
+================================================================
+
+
+==> Waiting for the API to become ready
+    readiness: {"status":"ready","replica_set":"rs0"}
+    PASS readiness status (= ready)
+    PASS connected to replica set (= rs0)
+
+==> Registering a user
+    PASS received an access token
+
+==> Opening two accounts
+    source:      6ab29e2b5d43afb3141f080e
+    destination: 6ab29e2b5d43afb3141f080f
+    PASS account starts ACTIVE (= ACTIVE)
+    PASS account is a USER account (= USER)
+    PASS new account balance is zero (= 0)
+    PASS new account entry count is zero (= 0)
+
+==> Funding the source account with 100000 minor units
+    PASS funding status (= COMPLETED)
+    PASS funding kind (= FUNDING)
+    PASS balance after funding (= 100000)
+    PASS entry count after funding (= 1)
+
+==> Transferring 25000 between the accounts
+    PASS transfer status (= COMPLETED)
+    PASS source balance after transfer (= 75000)
+    PASS destination balance after transfer (= 25000)
+    PASS balance response carries its currency (= USD)
+    PASS transaction can be read back (= 25000)
+
+==> Replaying one idempotency key 10 times concurrently
+    statuses: 201 x 1, 409 x 9
+    PASS exactly one replayed submission was accepted (= 1)
+    PASS the other nine were rejected as duplicates (= 9)
+    PASS the replayed transfer was applied exactly once (= 26000)
+
+==> Firing 30 concurrent debits that together exceed the balance
+    balance before the race: 74000
+    statuses: 201 x 14, 422 x 16
+    final source balance: 4000
+    PASS the account never went negative (balance 4000)
+    PASS exactly the affordable number of debits succeeded (= 14)
+    PASS remaining balance is exact (= 4000)
+
+==> Reconciling the whole ledger
+    report: {"balanced":true,"healthy":true,"net_signed_minor":0,"total_entries":34,"total_transactions":17,"entries_without_transaction":0,"unbalanced_transaction_groups":0,"negative_user_accounts":[],"per_currency_net_minor":{"USD":0},"checked_at":"2026-09-22T15:26:38.043118Z"}
+    PASS net_signed_minor (= 0)
+    PASS balanced (= True)
+    PASS healthy (= True)
+    PASS entries without a transaction (= 0)
+    PASS unbalanced transaction groups (= 0)
+    PASS negative USER accounts (= 0)
+    PASS two ledger entries per transaction, exactly (= True)
+
+==> Checking that ledger data cannot be mutated over HTTP
+    PASS PUT /transactions/{id} refused (405)
+    PASS PATCH /transactions/{id} refused (405)
+    PASS DELETE /transactions/{id} refused (405)
+    PASS PUT /accounts/{id}/balance refused (405) — balance is not stored
+
+==> Result
+    33 passed, 0 failed
+    END-TO-END VERIFICATION PASSED

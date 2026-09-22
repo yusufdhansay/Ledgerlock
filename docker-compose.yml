@@ -13,6 +13,13 @@
 # compose network reach it at `mongo:27017` with `directConnection=true`,
 # which skips replica-set topology discovery and therefore never tries
 # to follow the advertised `localhost` address.
+#
+# Usage:
+#   cp .env.example .env
+#   # then set JWT_SECRET_KEY:
+#   python -c "import secrets; print(secrets.token_urlsafe(64))"
+#   docker compose up -d --build
+#   ./scripts/verify_compose.sh
 
 services:
   mongo:
@@ -30,7 +37,9 @@ services:
       - mongo_data:/data/db
     healthcheck:
       # Idempotent: initiates the replica set on first run, and from then
-      # on simply reports whether the node is a writable primary.
+      # on simply reports whether the node is a writable primary. The API
+      # waits on this condition, so it never starts against a mongod that
+      # cannot yet serve transactions.
       test:
         - "CMD"
         - "mongosh"
@@ -50,6 +59,50 @@ services:
       timeout: 10s
       start_period: 10s
       retries: 30
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ledgerlock-api:local
+    container_name: ledgerlock-api
+    depends_on:
+      mongo:
+        # Not `service_started`. The application refuses to boot unless it
+        # can reach a writable replica set primary, so starting it before
+        # the replica set is initiated would just produce a crash loop.
+        condition: service_healthy
+    environment:
+      # directConnection=true: talk to this node directly rather than
+      # following the replica set's advertised `localhost:27017`, which
+      # would not resolve from inside a container.
+      MONGODB_URI: "mongodb://mongo:27017/?directConnection=true"
+      MONGODB_DB_NAME: "ledgerlock"
+      # Required, with no default anywhere in the code. Compose fails with
+      # this message rather than starting with a guessable signing key.
+      JWT_SECRET_KEY: "${JWT_SECRET_KEY:?set JWT_SECRET_KEY in .env — generate one with: python -c \"import secrets; print(secrets.token_urlsafe(64))\"}"
+      JWT_ALGORITHM: "${JWT_ALGORITHM:-HS256}"
+      ACCESS_TOKEN_EXPIRE_MINUTES: "${ACCESS_TOKEN_EXPIRE_MINUTES:-30}"
+      BCRYPT_ROUNDS: "${BCRYPT_ROUNDS:-12}"
+      SUPPORTED_CURRENCIES: "${SUPPORTED_CURRENCIES:-USD,EUR,GBP,INR}"
+      APP_ENV: "${APP_ENV:-development}"
+      LOG_LEVEL: "${LOG_LEVEL:-INFO}"
+    # Values are listed explicitly rather than via `env_file: .env`, because
+    # .env holds host-oriented settings (MONGODB_URI pointing at localhost)
+    # that would be wrong inside the network and would silently override the
+    # correct value above.
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
+    # The image already runs as an unprivileged user; read_only plus
+    # no-new-privileges means a compromise inside the process cannot modify
+    # the filesystem or gain capabilities. Nothing in the app writes to disk:
+    # logs go to stdout.
 
 volumes:
   mongo_data:
