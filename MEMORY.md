@@ -4,7 +4,7 @@ This file is the persistent context across sessions. Read it first,
 every time, before doing anything else.
 
 ## Current Phase
-Phase 9: Final README and number consolidation — not started
+All nine phases complete. Nothing in progress.
 
 ## Completed Phases
 
@@ -186,8 +186,12 @@ Phase 9: Final README and number consolidation — not started
   `tests/concurrency/results/phase8-append-only-privileges-20260922T183456Z.txt`
 
 ## In Progress
-Nothing in progress. Phase 8 closed; Phase 9 (final README consolidating
-every measured number) is next.
+Nothing in progress. All nine phases of TASK.md are complete.
+
+If picking this up again, the highest-value next piece of work is the bounded
+retry budget described first under Known Issues: extreme single-account
+contention currently has unbounded tail latency (measured p99 16s, one request
+33s, 463 attempts). It is the only known issue that would affect a user.
 
 ## Assumptions
 
@@ -495,7 +499,7 @@ every measured number) is next.
   transaction; that takes an exclusive lock, every other transaction got a
   WriteConflict, was retried, and its retried pre-check then saw the
   committed winner. Creating both collections explicitly before the
-  concurrent run changed the result to 19 of 20 applied. This is the same
+  concurrent run changed the result to 20 of 20 applied. This is the same
   sharp edge `app/core/db.py` already avoids for the real application by
   creating every collection at startup — the incident is what confirms
   that decision was worth making. Worth remembering generally: a
@@ -512,7 +516,7 @@ every measured number) is next.
   retries and the retry's pre-check sees the committed winner. The
   `unique_index` branch is the narrow case where the winner commits in the
   gap between a loser's pre-check and its insert. The index is still
-  load-bearing — the control test shows removing it lets 19 of 20
+  load-bearing — the control test shows removing it lets 20 of 20
   duplicates through — but the test asserts the observed distribution
   honestly rather than a split that does not occur. Two earlier attempts to
   force index catches (moving the test to funding, which has no
@@ -982,6 +986,29 @@ every measured number) is next.
 
 ## Real Measured Numbers (fill in only from actual test runs)
 
+**The saved artifacts under `tests/concurrency/results/` and
+`tests/load/results/` are the authoritative source for every number in this
+file and in README.md.** Where a test was run more than once (an interactive
+run while developing it, then the captured run), the captured run wins, and the
+figures here were corrected to match it during Phase 9.
+
+Four Phase 4 figures were corrected that way, and the Phase 4 commit message
+still quotes the earlier interactive run rather than the committed artifact.
+Recorded rather than quietly rewritten, since commit history is not editable and
+the discrepancy would otherwise look like a fabricated number:
+
+| Figure | Phase 4 commit message says | Committed artifact says |
+|---|---|---|
+| Mixed-size concurrent debits | 3 succeeded, balance 100, 9900 debited | **6 succeeded, balance 550, 9450 debited** |
+| Retry amplification | 646 callback runs, attempts 1-44 | **640 callback runs, attempts 1-42** |
+| Idempotency control, index removed | 19 of 20 applied, 95000 credited | **20 of 20 applied, 100000 credited** |
+| Randomised reconciliation batch | 122 entries / 61 transactions | **130 entries / 65 transactions** |
+
+All four vary between runs by design: which subset of differently-sized
+concurrent debits wins depends on interleaving, and retry counts depend on
+timing. None of the *conclusions* changed — the control still overdraws, the
+unique index is still load-bearing, and reconciliation is still exactly 0.
+
 ### Phase 0 — MongoDB transaction support
 Command: `.venv/bin/python -m pytest tests/unit/test_mongo_transactions.py -v`
 Run on 2026-09-22 against `mongo:7.0` via docker-compose, Python 3.12.9.
@@ -1082,7 +1109,7 @@ clean.
 |---|---|---|---|---|
 | 50 concurrent debits of 1000, opening balance 10000 | 50 | **10** | **0** | 40 rejected, all INSUFFICIENT_FUNDS |
 | 2 concurrent debits of 6000, opening balance 10000 | 2 | **1** | **4000** | the textbook lost-update case |
-| 10 concurrent debits of mixed sizes, opening balance 10000 | 10 | 3 | **100** | total debited 9900, never exceeded available |
+| 10 concurrent debits of mixed sizes, opening balance 10000 | 10 | 6 | **550** | total debited 9450, never exceeded available |
 | 100 concurrent debits of 1 minor unit, opening balance 10000 | 100 | **100** | **9900** | a lost update would show as a balance above 9900 |
 | 10 senders x 5000 into one account | 10 | **10** | recipient **50000** | different sources, so no serialisation conflict |
 | A and B each sending their whole 5000 to the other | 2 | 2 | A 5000, B 5000, **sum 10000** | no value created or destroyed |
@@ -1097,8 +1124,8 @@ clean.
 **Retry behaviour under maximum contention** (30 concurrent transfers on one
 source account, measured via `LedgerWriteResult.attempts`):
 - all 30 committed, **0** WRITE_CONFLICT errors reached any caller
-- attempts per transfer ranged **1 to 44**
-- **646 total transaction callback runs for 30 commits**, i.e. roughly 21x
+- attempts per transfer ranged **1 to 42**
+- **640 total transaction callback runs for 30 commits**, i.e. roughly 21x
   amplification when every request contends on the same account. This is the
   real cost of the guarantee and the number to watch in Phase 6. It is a
   worst case: contention is per-account, so unrelated accounts do not pay
@@ -1124,7 +1151,7 @@ assumptions section above; the index is still what makes it work.
 
 | Implementation | Requests (one shared key) | Applied | Destination credited |
 |---|---|---|---|
-| Check-then-insert, no unique index | 20 | **19** | **95000** for a single 5000 transfer |
+| Check-then-insert, no unique index | 20 | **20** | **100000** for a single 5000 transfer |
 | Ledgerlock | 20 | **1** | 5000 |
 
 **Immutability**
@@ -1151,7 +1178,7 @@ assumptions section above; the index is still what makes it work.
 | Scenario | Entries | Transactions | net_signed_minor | healthy |
 |---|---|---|---|---|
 | Empty ledger | 0 | 0 | **0** | True |
-| 104 concurrent randomised transfers, 8 accounts, 2 currencies (seed 20260922) | 122 | 61 | **0** | True |
+| 104 concurrent randomised transfers, 8 accounts, 2 currencies (seed 20260922) | 130 | 65 | **0** | True |
 | 80 concurrent transfers out of one account (heavy retry churn) | — | — | **0** | True |
 
 For the randomised batch: 53 accepted, 43 rejected CURRENCY_MISMATCH, 8
@@ -1387,5 +1414,16 @@ required when authorization is enabled with replica sets`. That is why the
 keyfile is generated in-container rather than the auth flag simply being
 added.
 
-### Later phases
-- Final README consolidating every measured number: not written yet (Phase 9)
+### Phase 9 — Final README and number consolidation
+Every figure quoted in README.md was cross-checked against the committed
+artifact that produced it, programmatically, not by eye: 15 specific claims
+matched their artifact text and all 4 referenced artifact paths resolve.
+
+That check found four stale figures which had been quoted from an earlier
+interactive run of the same tests rather than from the captured run. All four
+were corrected in MEMORY.md and README.md; the discrepancy with the Phase 4
+commit message is documented at the top of this section rather than hidden.
+
+Final state: **277 tests passing** (229 unit, 48 concurrency), `ruff` and
+`black` clean, `pip-audit` reporting no known vulnerabilities, secret audit
+passing.
